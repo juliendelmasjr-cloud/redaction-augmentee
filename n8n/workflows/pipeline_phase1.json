@@ -1,0 +1,226 @@
+{
+  "name": "Rédaction Augmentée — Pipeline Phase 1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "redaction-augmentee",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-input",
+      "name": "Webhook Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// COUCHE 1 — INGESTION\n// Détecte le type d'input et normalise le contenu\n\nconst input = $input.first().json.body || $input.first().json;\nconst userInput = input.content || input.text || input.url || '';\n\nfunction detectSourceType(content) {\n  // URL detection\n  if (/^https?:\\/\\//i.test(content.trim())) {\n    // Détection sport/match\n    if (/rugby|top14|ligue|match|score|résultat/i.test(content)) {\n      return 'url_match';\n    }\n    return 'url_article';\n  }\n  // PDF (sera géré séparément)\n  if (content.startsWith('%PDF') || input.source_type === 'pdf') {\n    return 'communique_pdf';\n  }\n  // Texte brut par défaut\n  return 'texte_brut';\n}\n\nfunction extractMetadata(content, sourceType) {\n  const metadata = {\n    language: 'fr',\n    word_count: content.split(/\\s+/).length,\n    date: new Date().toISOString()\n  };\n  \n  if (input.title) metadata.title = input.title;\n  if (input.source_url) metadata.source_url = input.source_url;\n  if (input.source_name) metadata.source_name = input.source_name;\n  \n  return metadata;\n}\n\nconst sourceType = input.source_type || detectSourceType(userInput);\nlet rawContent = userInput;\n\n// Si c'est une URL, on flag pour le scraping (prochain node)\nconst needsScraping = sourceType === 'url_article' || sourceType === 'url_match';\n\nconst ingestedContent = {\n  source_type: sourceType,\n  raw_content: needsScraping ? '' : rawContent,\n  metadata: extractMetadata(rawContent, sourceType),\n  _needs_scraping: needsScraping,\n  _url: needsScraping ? userInput.trim() : null\n};\n\nreturn [{ json: ingestedContent }];"
+      },
+      "id": "ingestion",
+      "name": "Couche 1 — Ingestion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._needs_scraping }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "router-scraping",
+      "name": "Besoin de Scraping ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json._url }}",
+        "options": {
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "http-scraper",
+      "name": "Scraper HTTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nettoie le HTML scrappé et extrait le contenu textuel\nconst html = $input.first().json.data || $input.first().json.body || '';\n\n// Suppression des tags script, style, nav, header, footer\nlet text = html\n  .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n  .replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, '')\n  .replace(/<header[^>]*>[\\s\\S]*?<\\/header>/gi, '')\n  .replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, '')\n  .replace(/<aside[^>]*>[\\s\\S]*?<\\/aside>/gi, '')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;/g, ' ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\n// Extraction du titre depuis le HTML original\nconst titleMatch = html.match(/<title[^>]*>([^<]+)<\\/title>/i);\nconst h1Match = html.match(/<h1[^>]*>([^<]+)<\\/h1>/i);\nconst title = h1Match ? h1Match[1].trim() : (titleMatch ? titleMatch[1].trim() : '');\n\n// Limiter à 5000 mots pour ne pas exploser les tokens\nconst words = text.split(/\\s+/);\nif (words.length > 5000) {\n  text = words.slice(0, 5000).join(' ') + '\\n[contenu tronqué]';\n}\n\nreturn [{ json: {\n  source_type: 'url_article',\n  raw_content: text,\n  metadata: {\n    title: title,\n    source_url: $('Couche 1 — Ingestion').first().json._url,\n    language: 'fr',\n    word_count: words.length,\n    date: new Date().toISOString()\n  }\n}}];"
+      },
+      "id": "html-cleaner",
+      "name": "Nettoyeur HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 200]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {},
+        "options": {}
+      },
+      "id": "merge-content",
+      "name": "Merge Contenu",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $('Merge Contenu').first().json.system_prompt || '' }}"
+            },
+            {
+              "role": "user",
+              "content": "Analyse ce contenu et produis un editorial_plan en JSON.\n\nSource type: {{ $json.source_type }}\nMétadonnées: {{ JSON.stringify($json.metadata) }}\n\nContenu brut:\n{{ $json.raw_content }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1500
+        }
+      },
+      "id": "editorial-router",
+      "name": "Couche 2 — Routeur Éditorial",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1520, 300],
+      "notes": "Remplacer par le node OpenAI/Claude approprié selon ta config n8n. Le prompt système est dans n8n/prompts/editorial_router.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse le JSON du routeur éditorial et prépare l'input pour la Couche 3\nconst routerOutput = $input.first().json;\nlet editorialPlan;\n\ntry {\n  // Le LLM peut renvoyer du JSON dans un bloc markdown\n  let text = routerOutput.text || routerOutput.message || JSON.stringify(routerOutput);\n  text = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  editorialPlan = JSON.parse(text);\n} catch (e) {\n  throw new Error('Le routeur éditorial n\\'a pas renvoyé du JSON valide: ' + e.message);\n}\n\n// Récupère le contenu ingéré\nconst ingested = $('Merge Contenu').first().json;\n\nreturn [{ json: {\n  editorial_plan: editorialPlan,\n  raw_content: ingested.raw_content,\n  metadata: ingested.metadata\n}}];"
+      },
+      "id": "parse-editorial-plan",
+      "name": "Parse Editorial Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $('Merge Contenu').first().json.generator_prompt || '' }}"
+            },
+            {
+              "role": "user",
+              "content": "Génère le kit éditorial pour ce contenu.\n\nPlan éditorial:\n{{ JSON.stringify($json.editorial_plan, null, 2) }}\n\nContenu source:\n{{ $json.raw_content }}\n\nFormats à produire: {{ $json.editorial_plan.target_formats.join(', ') }}\n\nRéponds en JSON pur avec un objet 'assets' contenant chaque format."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "content-generator",
+      "name": "Couche 3 — Générateur",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1960, 300],
+      "notes": "Température plus haute pour la créativité. Remplacer par Claude pour la qualité finale."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble le kit final\nconst generatorOutput = $input.first().json;\nconst editorialData = $('Parse Editorial Plan').first().json;\n\nlet assets;\ntry {\n  let text = generatorOutput.text || generatorOutput.message || JSON.stringify(generatorOutput);\n  text = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const parsed = JSON.parse(text);\n  assets = parsed.assets || parsed;\n} catch (e) {\n  throw new Error('Le générateur n\\'a pas renvoyé du JSON valide: ' + e.message);\n}\n\nconst kit = {\n  editorial_plan: editorialData.editorial_plan,\n  assets: assets,\n  metadata: editorialData.metadata,\n  generated_at: new Date().toISOString(),\n  generation_time_ms: 0 // TODO: mesurer le temps réel\n};\n\nreturn [{ json: kit }];"
+      },
+      "id": "assemble-kit",
+      "name": "Assemble Kit Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2180, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Réponse Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2400, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Input": {
+      "main": [
+        [{ "node": "Couche 1 — Ingestion", "type": "main", "index": 0 }]
+      ]
+    },
+    "Couche 1 — Ingestion": {
+      "main": [
+        [{ "node": "Besoin de Scraping ?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Besoin de Scraping ?": {
+      "main": [
+        [{ "node": "Scraper HTTP", "type": "main", "index": 0 }],
+        [{ "node": "Merge Contenu", "type": "main", "index": 1 }]
+      ]
+    },
+    "Scraper HTTP": {
+      "main": [
+        [{ "node": "Nettoyeur HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Nettoyeur HTML": {
+      "main": [
+        [{ "node": "Merge Contenu", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Contenu": {
+      "main": [
+        [{ "node": "Couche 2 — Routeur Éditorial", "type": "main", "index": 0 }]
+      ]
+    },
+    "Couche 2 — Routeur Éditorial": {
+      "main": [
+        [{ "node": "Parse Editorial Plan", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Editorial Plan": {
+      "main": [
+        [{ "node": "Couche 3 — Générateur", "type": "main", "index": 0 }]
+      ]
+    },
+    "Couche 3 — Générateur": {
+      "main": [
+        [{ "node": "Assemble Kit Final", "type": "main", "index": 0 }]
+      ]
+    },
+    "Assemble Kit Final": {
+      "main": [
+        [{ "node": "Réponse Webhook", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "redaction-augmentee" }, { "name": "phase1" }]
+}

@@ -1,0 +1,394 @@
+import { useState, useCallback } from 'react'
+import { Send, Loader2, FileText, Twitter, Instagram, Linkedin, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe, Newspaper } from 'lucide-react'
+
+// --- TYPES ---
+interface EditorialPlan {
+  content_type: string
+  angle: string
+  tone: string
+  hook_direction: string
+  key_facts: string[]
+  target_formats: string[]
+  editorial_notes: string | string[]
+}
+
+interface Assets {
+  article?: { title: string; chapo: string; body: string; chute: string }
+  post_x?: { text: string; hashtags?: string[] } | string
+  post_instagram?: { caption: string; hashtags?: string[] } | string
+  post_linkedin?: { text: string } | string
+  newsletter_blurb?: { subject_line: string; body: string }
+  audio_flash?: { script: string; duration_target_seconds: number }
+  seo_meta?: { title_tag: string; meta_description: string; keywords: string[] | string }
+}
+
+interface GeneratedKit {
+  editorial_plan: EditorialPlan
+  assets: Assets
+  generated_at: string
+  generation_time_ms: number
+}
+
+type PipelineStep = 'idle' | 'ingesting' | 'routing' | 'generating' | 'done' | 'error'
+
+// --- CONFIG ---
+const API_KEY = import.meta.env.VITE_OPENAI_API_KEY || ''
+const API_URL = 'https://api.openai.com/v1/chat/completions'
+const MODEL = import.meta.env.VITE_MODEL || 'gpt-4o-mini'
+
+// --- PROMPTS (inline pour le front standalone) ---
+const ROUTER_PROMPT = `Tu es le rédacteur en chef d'une rédaction numérique. Tu reçois un contenu brut et produis un editorial_plan en JSON.
+
+Champs requis :
+- content_type: recap_sportif | communique | interview | breve | analyse | portrait | evenement | autre
+- angle: ce qui rend cette info intéressante (PAS un résumé)
+- tone: factuel | dynamique | analytique | conversationnel | solennel
+- hook_direction: direction de l'accroche
+- key_facts: 5-8 faits vérifiables
+- target_formats: parmi [article, post_x, post_instagram, post_linkedin, newsletter_blurb, audio_flash, seo_meta]
+- editorial_notes: instructions pour guider la génération
+
+Adapte les formats au contenu. Réponds UNIQUEMENT en JSON pur.`
+
+const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent. Tu génères un kit éditorial cohérent à partir d'un plan éditorial.
+
+Règles :
+- Même angle, mêmes faits, même ton sur TOUS les formats
+- Article : title, chapo (2-3 phrases), body (pyramide inversée), chute (ouverture)
+- Post X : max 280 car, 2-3 hashtags, objet {text, hashtags}
+- Post Instagram : caption 150-300 mots, hook fort en 1ère ligne, objet {caption, hashtags}
+- Post LinkedIn : 150-250 mots, hook pro, objet {text}
+- Newsletter : {subject_line (60 car max), body (80-120 mots)}
+- Audio flash : {script (75-110 mots, oral, avec [pause]), duration_target_seconds}
+- SEO : {title_tag (55-60 car), meta_description (150-160 car), keywords (array)}
+
+Ne génère QUE les formats demandés. Réponds en JSON avec un objet "assets".`
+
+// --- API CALL ---
+async function callLLM(system: string, user: string, temp = 0.3, maxTokens = 2000): Promise<string> {
+  const resp = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      temperature: temp,
+      max_tokens: maxTokens
+    })
+  })
+  if (!resp.ok) throw new Error(`API Error ${resp.status}`)
+  const data = await resp.json()
+  return data.choices[0].message.content
+}
+
+function parseJSON(text: string) {
+  return JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim())
+}
+
+// --- COMPONENTS ---
+
+function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number }) {
+  const steps = [
+    { key: 'ingesting', label: 'Ingestion', icon: Globe },
+    { key: 'routing', label: 'Analyse éditoriale', icon: Sparkles },
+    { key: 'generating', label: 'Génération', icon: Newspaper },
+  ]
+  const currentIndex = steps.findIndex(s => s.key === step)
+
+  return (
+    <div className="flex items-center justify-center gap-2 mb-8">
+      {steps.map((s, i) => {
+        const Icon = s.icon
+        const isActive = s.key === step
+        const isDone = currentIndex > i || step === 'done'
+        return (
+          <div key={s.key} className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-500 ${
+              isActive ? 'bg-orange-500 text-white scale-105 shadow-lg shadow-orange-500/30' :
+              isDone ? 'bg-green-500/20 text-green-400' :
+              'bg-white/5 text-white/30'
+            }`}>
+              {isActive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+              {s.label}
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`w-8 h-0.5 ${isDone ? 'bg-green-500/50' : 'bg-white/10'}`} />
+            )}
+          </div>
+        )
+      })}
+      {elapsed > 0 && (
+        <span className="ml-4 text-sm text-white/40 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
+      )}
+    </div>
+  )
+}
+
+function AssetCard({ title, icon: Icon, children, color }: {
+  title: string; icon: React.ElementType; children: React.ReactNode; color: string
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className={`rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors`}
+      >
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
+          <Icon className="w-4 h-4 text-white" />
+        </div>
+        <span className="font-semibold text-white flex-1">{title}</span>
+        {open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
+      </button>
+      {open && <div className="px-5 pb-5 text-white/80 text-sm leading-relaxed">{children}</div>}
+    </div>
+  )
+}
+
+function ArticleView({ article }: { article: NonNullable<Assets['article']> }) {
+  return (
+    <AssetCard title="Article" icon={FileText} color="bg-blue-600">
+      <h3 className="text-lg font-bold text-white mb-2">{article.title}</h3>
+      <p className="text-orange-300 font-medium mb-4 italic">{article.chapo}</p>
+      <div className="whitespace-pre-wrap mb-4">{article.body}</div>
+      <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{article.chute}</p>
+    </AssetCard>
+  )
+}
+
+function PostView({ platform, content, icon, color }: {
+  platform: string; content: string; icon: React.ElementType; color: string
+}) {
+  return (
+    <AssetCard title={`Post ${platform}`} icon={icon} color={color}>
+      <p className="whitespace-pre-wrap">{content}</p>
+    </AssetCard>
+  )
+}
+
+function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
+  return (
+    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">
+          ~{audio.duration_target_seconds}s
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+        {audio.script}
+      </p>
+    </AssetCard>
+  )
+}
+
+function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
+  const keywords = Array.isArray(seo.keywords) ? seo.keywords : (seo.keywords as string).split(',').map(k => k.trim())
+  return (
+    <AssetCard title="SEO" icon={Search} color="bg-green-600">
+      <div className="space-y-2">
+        <div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{seo.title_tag}</span></div>
+        <div><span className="text-white/40 text-xs">Meta desc:</span> <span>{seo.meta_description}</span></div>
+        <div className="flex flex-wrap gap-1 mt-2">
+          {keywords.map((k, i) => (
+            <span key={i} className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded-full">{k}</span>
+          ))}
+        </div>
+      </div>
+    </AssetCard>
+  )
+}
+
+function EditorialPlanView({ plan }: { plan: EditorialPlan }) {
+  return (
+    <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles className="w-5 h-5 text-orange-400" />
+        <h3 className="font-bold text-orange-300">Analyse éditoriale</h3>
+      </div>
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <span className="text-white/40 text-xs block">Type</span>
+          <span className="text-white font-medium">{plan.content_type}</span>
+        </div>
+        <div>
+          <span className="text-white/40 text-xs block">Ton</span>
+          <span className="text-white font-medium">{plan.tone}</span>
+        </div>
+        <div className="col-span-2">
+          <span className="text-white/40 text-xs block">Angle</span>
+          <span className="text-orange-200">{plan.angle}</span>
+        </div>
+        <div className="col-span-2">
+          <span className="text-white/40 text-xs block">Faits clés</span>
+          <ul className="list-disc list-inside text-white/70 text-xs mt-1 space-y-1">
+            {plan.key_facts.map((f, i) => <li key={i}>{f}</li>)}
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- MAIN APP ---
+export default function App() {
+  const [input, setInput] = useState('')
+  const [step, setStep] = useState<PipelineStep>('idle')
+  const [kit, setKit] = useState<GeneratedKit | null>(null)
+  const [error, setError] = useState('')
+  const [elapsed, setElapsed] = useState(0)
+
+  const runPipeline = useCallback(async () => {
+    if (!input.trim()) return
+    if (!API_KEY) { setError('Clé API manquante. Ajoute VITE_OPENAI_API_KEY dans .env'); return }
+
+    setStep('ingesting')
+    setKit(null)
+    setError('')
+    const start = Date.now()
+    const timer = setInterval(() => setElapsed(Date.now() - start), 100)
+
+    try {
+      // Couche 1 — Ingestion
+      const rawContent = input.trim()
+      const wordCount = rawContent.split(/\s+/).length
+
+      // Couche 2 — Routeur
+      setStep('routing')
+      const routerResult = await callLLM(
+        ROUTER_PROMPT,
+        `Analyse ce contenu (${wordCount} mots, type: texte_brut) et produis un editorial_plan:\n\n${rawContent}`,
+        0.3, 1500
+      )
+      const editorialPlan = parseJSON(routerResult)
+
+      // Couche 3 — Génération
+      setStep('generating')
+      const genResult = await callLLM(
+        GENERATOR_PROMPT,
+        `Plan éditorial:\n${JSON.stringify(editorialPlan, null, 2)}\n\nContenu source:\n${rawContent}\n\nFormats: ${editorialPlan.target_formats.join(', ')}\n\nRéponds en JSON avec un objet "assets".`,
+        0.7, 4000
+      )
+      const parsed = parseJSON(genResult)
+      const assets = parsed.assets || parsed
+
+      clearInterval(timer)
+      const totalTime = Date.now() - start
+      setElapsed(totalTime)
+
+      setKit({
+        editorial_plan: editorialPlan,
+        assets,
+        generated_at: new Date().toISOString(),
+        generation_time_ms: totalTime
+      })
+      setStep('done')
+
+    } catch (e: unknown) {
+      clearInterval(timer)
+      setError(e instanceof Error ? e.message : 'Erreur inconnue')
+      setStep('error')
+    }
+  }, [input])
+
+  const getPostText = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => {
+    if (typeof post === 'string') return post
+    if (post && typeof post === 'object') {
+      if ('text' in post) return post.text
+      if ('caption' in post) return post.caption
+    }
+    return ''
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
+      {/* Header */}
+      <header className="border-b border-white/10 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Rédaction Augmentée</h1>
+              <p className="text-xs text-white/40">by Altiarc — IA éditoriale multi-format</p>
+            </div>
+          </div>
+          <span className="text-xs text-white/20 font-mono">v0.1 — Phase 1</span>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* Input Zone */}
+        <div className="mb-8">
+          <label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label>
+          <div className="relative">
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Le Stade Toulousain s'est imposé 31-24 face à l'Union Bordeaux-Bègles en demi-finale du Top 14..."
+              className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-white/20 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
+              disabled={step !== 'idle' && step !== 'done' && step !== 'error'}
+            />
+            <div className="absolute bottom-3 right-3 flex items-center gap-3">
+              <span className="text-xs text-white/30">{input.split(/\s+/).filter(Boolean).length} mots</span>
+              <button
+                onClick={runPipeline}
+                disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-medium text-sm hover:shadow-lg hover:shadow-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {step !== 'idle' && step !== 'done' && step !== 'error' ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</>
+                ) : (
+                  <><Send className="w-4 h-4" /> Générer le kit</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Pipeline Steps */}
+        {step !== 'idle' && <StepIndicator step={step} elapsed={elapsed} />}
+
+        {/* Error */}
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Results */}
+        {kit && (
+          <div className="animate-in fade-in duration-500">
+            {/* Stats bar */}
+            <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
+              <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
+              <span>•</span>
+              <span>{Object.keys(kit.assets).length} formats</span>
+              <span>•</span>
+              <span>Modèle : {MODEL}</span>
+            </div>
+
+            {/* Editorial Plan */}
+            <EditorialPlanView plan={kit.editorial_plan} />
+
+            {/* Assets Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} /></div>}
+              {kit.assets.post_x && <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={Twitter} color="bg-sky-600" />}
+              {kit.assets.post_instagram && <PostView platform="Instagram" content={getPostText(kit.assets.post_instagram)} icon={Instagram} color="bg-pink-600" />}
+              {kit.assets.post_linkedin && <PostView platform="LinkedIn" content={getPostText(kit.assets.post_linkedin)} icon={Linkedin} color="bg-blue-700" />}
+              {kit.assets.audio_flash && <AudioView audio={kit.assets.audio_flash} />}
+              {kit.assets.seo_meta && <SeoView seo={kit.assets.seo_meta} />}
+              {kit.assets.newsletter_blurb && (
+                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600">
+                  <div className="text-amber-300 font-medium mb-2">📧 {kit.assets.newsletter_blurb.subject_line}</div>
+                  <p>{kit.assets.newsletter_blurb.body}</p>
+                </AssetCard>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}

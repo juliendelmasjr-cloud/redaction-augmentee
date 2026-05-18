@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rédaction Augmentée — Schéma Pipeline",
+  "description": "Objets qui transitent entre les couches du pipeline",
+
+  "definitions": {
+
+    "IngestedContent": {
+      "description": "Couche 1 → Couche 2 : contenu brut normalisé",
+      "type": "object",
+      "required": ["source_type", "raw_content", "metadata"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["url_article", "url_match", "texte_brut", "communique_pdf", "transcript_audio", "transcript_video"]
+        },
+        "raw_content": {
+          "type": "string",
+          "description": "Texte brut extrait de la source"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "source_url": { "type": "string" },
+            "source_name": { "type": "string" },
+            "date": { "type": "string", "format": "date-time" },
+            "language": { "type": "string", "default": "fr" },
+            "word_count": { "type": "integer" }
+          }
+        }
+      }
+    },
+
+    "EditorialPlan": {
+      "description": "Couche 2 → Couche 3 : plan éditorial qui pilote la génération",
+      "type": "object",
+      "required": ["content_type", "angle", "tone", "target_formats", "key_facts", "hook_direction"],
+      "properties": {
+        "content_type": {
+          "type": "string",
+          "enum": ["recap_sportif", "communique", "interview", "breve", "analyse", "portrait", "evenement", "autre"]
+        },
+        "angle": {
+          "type": "string",
+          "description": "L'angle éditorial choisi — ce qui rend ce contenu intéressant, le point de vue"
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["factuel", "dynamique", "analytique", "conversationnel", "solennel"],
+          "description": "Ton principal à appliquer sur tous les formats"
+        },
+        "hook_direction": {
+          "type": "string",
+          "description": "Direction de l'accroche — ce qui capte l'attention en premier"
+        },
+        "key_facts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Faits clés à utiliser dans TOUS les formats (garantit la cohérence)"
+        },
+        "target_formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["article", "post_x", "post_instagram", "post_linkedin", "thread_x", "newsletter_blurb", "audio_flash", "visuel", "video_verticale", "seo_meta", "faq"]
+          }
+        },
+        "editorial_notes": {
+          "type": "string",
+          "description": "Notes libres du routeur pour guider la génération"
+        }
+      }
+    },
+
+    "GeneratedKit": {
+      "description": "Couche 3 → Couche 4/5 : kit éditorial complet",
+      "type": "object",
+      "required": ["editorial_plan", "assets", "generated_at"],
+      "properties": {
+        "editorial_plan": { "$ref": "#/definitions/EditorialPlan" },
+        "assets": {
+          "type": "object",
+          "properties": {
+            "article": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "chapo": { "type": "string" },
+                "body": { "type": "string" },
+                "chute": { "type": "string" }
+              }
+            },
+            "post_x": { "type": "object", "properties": { "text": { "type": "string" }, "hashtags": { "type": "array", "items": { "type": "string" } } } },
+            "post_instagram": { "type": "object", "properties": { "caption": { "type": "string" }, "hashtags": { "type": "array", "items": { "type": "string" } } } },
+            "post_linkedin": { "type": "object", "properties": { "text": { "type": "string" } } },
+            "newsletter_blurb": { "type": "object", "properties": { "subject_line": { "type": "string" }, "body": { "type": "string" } } },
+            "audio_flash": { "type": "object", "properties": { "script": { "type": "string" }, "duration_target_seconds": { "type": "integer" } } },
+            "seo_meta": { "type": "object", "properties": { "title_tag": { "type": "string" }, "meta_description": { "type": "string" }, "keywords": { "type": "array", "items": { "type": "string" } } } }
+          }
+        },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "generation_time_ms": { "type": "integer" }
+      }
+    }
+  }
+}
