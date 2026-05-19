@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Send, Loader2, FileText, Twitter, Instagram, Linkedin, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe, Newspaper } from 'lucide-react'
+import { Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe, Newspaper, Image as ImageIcon } from 'lucide-react'
 
 // --- TYPES ---
 interface EditorialPlan {
@@ -20,6 +20,7 @@ interface Assets {
   newsletter_blurb?: { subject_line: string; body: string }
   audio_flash?: { script: string; duration_target_seconds: number }
   seo_meta?: { title_tag: string; meta_description: string; keywords: string[] | string }
+  image_data?: { url: string; photographer: string; src: string }
 }
 
 interface GeneratedKit {
@@ -35,20 +36,22 @@ type PipelineStep = 'idle' | 'ingesting' | 'routing' | 'generating' | 'done' | '
 const API_KEY = import.meta.env.VITE_OPENAI_API_KEY || ''
 const API_URL = 'https://api.openai.com/v1/chat/completions'
 const MODEL = import.meta.env.VITE_MODEL || 'gpt-4o-mini'
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || ''
+const DEFAULT_USE_N8N = import.meta.env.VITE_USE_N8N === 'true'
 
 // --- PROMPTS (inline pour le front standalone) ---
 const ROUTER_PROMPT = `Tu es le rédacteur en chef d'une rédaction numérique. Tu reçois un contenu brut et produis un editorial_plan en JSON.
 
 Champs requis :
 - content_type: recap_sportif | communique | interview | breve | analyse | portrait | evenement | autre
-- angle: ce qui rend cette info intéressante (PAS un résumé)
+- angle: ce qui rend cette info intéressante (PAS un résumé, trouve un angle éditorial fort)
 - tone: factuel | dynamique | analytique | conversationnel | solennel
-- hook_direction: direction de l'accroche
-- key_facts: 5-8 faits vérifiables
-- target_formats: parmi [article, post_x, post_instagram, post_linkedin, newsletter_blurb, audio_flash, seo_meta]
-- editorial_notes: instructions pour guider la génération
+- hook_direction: direction de l'accroche (percutante, pas descriptive)
+- key_facts: 5-8 faits vérifiables extraits du contenu
+- target_formats: TOUJOURS inclure au minimum [article, post_x, post_instagram, post_linkedin, newsletter_blurb, audio_flash, seo_meta]. Ne retire un format que s'il est vraiment inapproprié.
+- editorial_notes: instructions spécifiques pour guider la génération (ton, style, ce qu'il faut mettre en avant)
 
-Adapte les formats au contenu. Réponds UNIQUEMENT en JSON pur.`
+IMPORTANT : tu es une rédaction complète, pas un blog. Chaque contenu mérite une déclinaison multi-plateforme. Réponds UNIQUEMENT en JSON pur.`
 
 const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent. Tu génères un kit éditorial cohérent à partir d'un plan éditorial.
 
@@ -83,6 +86,36 @@ async function callLLM(system: string, user: string, temp = 0.3, maxTokens = 200
 
 function parseJSON(text: string) {
   return JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim())
+}
+
+const PEXELS_KEY = import.meta.env.VITE_PEXELS_API_KEY || ''
+
+async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  if (!PEXELS_KEY) return null
+  const query = await callLLM(
+    `Tu génères des requêtes de recherche d'images pour illustrer des articles de presse.
+
+RÈGLES STRICTES :
+- Réponds UNIQUEMENT avec la requête (2-4 mots en anglais), rien d'autre
+- JAMAIS de noms de villes seuls (pas "Toulouse", pas "Paris")
+- Cherche le SUJET principal : le sport, l'action, les personnes
+- Pour du sport : utilise le sport + l'action (ex: "rugby tackle match", "rugby players celebration", "football stadium crowd")
+- Pour une personne connue : utilise son nom + contexte (ex: "Antoine Dupont rugby")
+- Pour un événement : décris la scène, pas le lieu`,
+    `Type: ${editorialPlan.content_type}\nAngle: ${editorialPlan.angle}\nFaits clés: ${editorialPlan.key_facts.slice(0, 3).join(', ')}`,
+    0.1, 50
+  )
+  const searchQuery = query.replace(/['"]/g, '').trim()
+  // Chercher plusieurs photos et prendre la meilleure
+  const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=5&orientation=landscape`, {
+    headers: { 'Authorization': PEXELS_KEY }
+  })
+  if (!resp.ok) return null
+  const data = await resp.json()
+  if (!data.photos || data.photos.length === 0) return null
+  // Prendre la première photo (meilleure pertinence)
+  const photo = data.photos[0]
+  return { url: photo.src.large2x, photographer: photo.photographer, src: photo.url }
 }
 
 // --- COMPONENTS ---
@@ -124,8 +157,9 @@ function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number 
   )
 }
 
-function AssetCard({ title, icon: Icon, children, color }: {
+function AssetCard({ title, icon: Icon, children, color, imageData }: {
   title: string; icon: React.ElementType; children: React.ReactNode; color: string
+  imageData?: { url: string; photographer: string; src: string } | null
 }) {
   const [open, setOpen] = useState(true)
   return (
@@ -140,14 +174,27 @@ function AssetCard({ title, icon: Icon, children, color }: {
         <span className="font-semibold text-white flex-1">{title}</span>
         {open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
       </button>
-      {open && <div className="px-5 pb-5 text-white/80 text-sm leading-relaxed">{children}</div>}
+      {open && (
+        <div>
+          {imageData && (
+            <div className="px-5 pt-2">
+              <img src={imageData.url} alt={`Illustration ${title}`} className="w-full h-48 object-cover rounded-lg" />
+              <div className="flex items-center justify-between mt-1 text-xs text-white/30">
+                <span>Photo : {imageData.photographer}</span>
+                <a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">Pexels</a>
+              </div>
+            </div>
+          )}
+          <div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div>
+        </div>
+      )}
     </div>
   )
 }
 
-function ArticleView({ article }: { article: NonNullable<Assets['article']> }) {
+function ArticleView({ article, imageData }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data'] }) {
   return (
-    <AssetCard title="Article" icon={FileText} color="bg-blue-600">
+    <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData}>
       <h3 className="text-lg font-bold text-white mb-2">{article.title}</h3>
       <p className="text-orange-300 font-medium mb-4 italic">{article.chapo}</p>
       <div className="whitespace-pre-wrap mb-4">{article.body}</div>
@@ -156,11 +203,11 @@ function ArticleView({ article }: { article: NonNullable<Assets['article']> }) {
   )
 }
 
-function PostView({ platform, content, icon, color }: {
-  platform: string; content: string; icon: React.ElementType; color: string
+function PostView({ platform, content, icon, color, imageData }: {
+  platform: string; content: string; icon: React.ElementType; color: string; imageData?: Assets['image_data']
 }) {
   return (
-    <AssetCard title={`Post ${platform}`} icon={icon} color={color}>
+    <AssetCard title={`Post ${platform}`} icon={icon} color={color} imageData={imageData}>
       <p className="whitespace-pre-wrap">{content}</p>
     </AssetCard>
   )
@@ -236,8 +283,64 @@ export default function App() {
   const [kit, setKit] = useState<GeneratedKit | null>(null)
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
+  const [useN8N, setUseN8N] = useState(DEFAULT_USE_N8N)
 
-  const runPipeline = useCallback(async () => {
+  // --- Pipeline via n8n (production) ---
+  const runPipelineN8N = useCallback(async () => {
+    if (!input.trim()) return
+    if (!N8N_WEBHOOK_URL) { setError('URL webhook n8n manquante. Ajoute VITE_N8N_WEBHOOK_URL dans .env'); return }
+
+    setStep('ingesting')
+    setKit(null)
+    setError('')
+    const start = Date.now()
+    const timer = setInterval(() => setElapsed(Date.now() - start), 100)
+
+    try {
+      setStep('routing')
+      const resp = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: input.trim(), source_type: 'text' })
+      })
+      if (!resp.ok) throw new Error(`n8n Error ${resp.status}: ${await resp.text()}`)
+
+      setStep('generating')
+      const data = await resp.json()
+
+      // n8n renvoie le kit complet depuis Assemble Kit Final
+      const kitData = data as GeneratedKit
+
+      // Chercher une image en parallèle si le plan éditorial est dispo
+      let imageData: Assets['image_data'] = undefined
+      if (kitData.editorial_plan) {
+        imageData = await searchImage(kitData.editorial_plan).catch(() => null) ?? undefined
+      }
+
+      clearInterval(timer)
+      const totalTime = Date.now() - start
+      setElapsed(totalTime)
+
+      const assets = kitData.assets || {}
+      if (imageData) assets.image_data = imageData
+
+      setKit({
+        editorial_plan: kitData.editorial_plan,
+        assets,
+        generated_at: kitData.generated_at || new Date().toISOString(),
+        generation_time_ms: totalTime
+      })
+      setStep('done')
+
+    } catch (e: unknown) {
+      clearInterval(timer)
+      setError(e instanceof Error ? e.message : 'Erreur inconnue')
+      setStep('error')
+    }
+  }, [input])
+
+  // --- Pipeline local (OpenAI direct) ---
+  const runPipelineLocal = useCallback(async () => {
     if (!input.trim()) return
     if (!API_KEY) { setError('Clé API manquante. Ajoute VITE_OPENAI_API_KEY dans .env'); return }
 
@@ -261,15 +364,19 @@ export default function App() {
       )
       const editorialPlan = parseJSON(routerResult)
 
-      // Couche 3 — Génération
+      // Couche 3 — Génération texte + image en parallèle
       setStep('generating')
-      const genResult = await callLLM(
-        GENERATOR_PROMPT,
-        `Plan éditorial:\n${JSON.stringify(editorialPlan, null, 2)}\n\nContenu source:\n${rawContent}\n\nFormats: ${editorialPlan.target_formats.join(', ')}\n\nRéponds en JSON avec un objet "assets".`,
-        0.7, 4000
-      )
+      const [genResult, imageData] = await Promise.all([
+        callLLM(
+          GENERATOR_PROMPT,
+          `Plan éditorial:\n${JSON.stringify(editorialPlan, null, 2)}\n\nContenu source:\n${rawContent}\n\nFormats: ${editorialPlan.target_formats.join(', ')}\n\nRéponds en JSON avec un objet "assets".`,
+          0.7, 4000
+        ),
+        searchImage(editorialPlan).catch(() => null)
+      ])
       const parsed = parseJSON(genResult)
       const assets = parsed.assets || parsed
+      if (imageData) assets.image_data = imageData
 
       clearInterval(timer)
       const totalTime = Date.now() - start
@@ -289,6 +396,8 @@ export default function App() {
       setStep('error')
     }
   }, [input])
+
+  const runPipeline = useN8N ? runPipelineN8N : runPipelineLocal
 
   const getPostText = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => {
     if (typeof post === 'string') return post
@@ -313,7 +422,20 @@ export default function App() {
               <p className="text-xs text-white/40">by Altiarc — IA éditoriale multi-format</p>
             </div>
           </div>
-          <span className="text-xs text-white/20 font-mono">v0.1 — Phase 1</span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setUseN8N(!useN8N)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                useN8N
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-white/5 text-white/40 border border-white/10'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
+              {useN8N ? 'n8n' : 'Local'}
+            </button>
+            <span className="text-xs text-white/20 font-mono">v0.1 — Phase 1</span>
+          </div>
         </div>
       </header>
 
@@ -365,7 +487,7 @@ export default function App() {
               <span>•</span>
               <span>{Object.keys(kit.assets).length} formats</span>
               <span>•</span>
-              <span>Modèle : {MODEL}</span>
+              <span>Mode : {useN8N ? 'n8n' : MODEL}</span>
             </div>
 
             {/* Editorial Plan */}
@@ -373,10 +495,10 @@ export default function App() {
 
             {/* Assets Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} /></div>}
-              {kit.assets.post_x && <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={Twitter} color="bg-sky-600" />}
-              {kit.assets.post_instagram && <PostView platform="Instagram" content={getPostText(kit.assets.post_instagram)} icon={Instagram} color="bg-pink-600" />}
-              {kit.assets.post_linkedin && <PostView platform="LinkedIn" content={getPostText(kit.assets.post_linkedin)} icon={Linkedin} color="bg-blue-700" />}
+              {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} /></div>}
+              {kit.assets.post_x && <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" imageData={kit.assets.image_data} />}
+              {kit.assets.post_instagram && <PostView platform="Instagram" content={getPostText(kit.assets.post_instagram)} icon={Camera} color="bg-pink-600" imageData={kit.assets.image_data} />}
+              {kit.assets.post_linkedin && <PostView platform="LinkedIn" content={getPostText(kit.assets.post_linkedin)} icon={Briefcase} color="bg-blue-700" imageData={kit.assets.image_data} />}
               {kit.assets.audio_flash && <AudioView audio={kit.assets.audio_flash} />}
               {kit.assets.seo_meta && <SeoView seo={kit.assets.seo_meta} />}
               {kit.assets.newsletter_blurb && (
