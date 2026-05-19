@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe, Newspaper, Image as ImageIcon } from 'lucide-react'
+import { Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe, Newspaper, Image as ImageIcon, Copy, Check } from 'lucide-react'
 
 // --- TYPES ---
 interface EditorialPlan {
@@ -53,17 +53,18 @@ Champs requis :
 
 IMPORTANT : tu es une rédaction complète, pas un blog. Chaque contenu mérite une déclinaison multi-plateforme. Réponds UNIQUEMENT en JSON pur.`
 
-const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent. Tu génères un kit éditorial cohérent à partir d'un plan éditorial.
+const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent expert. Tu génères un kit éditorial cohérent à partir d'un plan éditorial ET du contenu source original.
 
-Règles :
-- Même angle, mêmes faits, même ton sur TOUS les formats
-- Article : title, chapo (2-3 phrases), body (pyramide inversée), chute (ouverture)
-- Post X : max 280 car, 2-3 hashtags, objet {text, hashtags}
-- Post Instagram : caption 150-300 mots, hook fort en 1ère ligne, objet {caption, hashtags}
-- Post LinkedIn : 150-250 mots, hook pro, objet {text}
-- Newsletter : {subject_line (60 car max), body (80-120 mots)}
-- Audio flash : {script (75-110 mots, oral, avec [pause]), duration_target_seconds}
-- SEO : {title_tag (55-60 car), meta_description (150-160 car), keywords (array)}
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits, noms, chiffres et informations présents dans le contenu source. Ne JAMAIS inventer de données. Chaque format doit parler du MÊME sujet avec les MÊMES faits.
+
+Formats et structure JSON :
+- article : {title, chapo (2-3 phrases d'accroche), body (pyramide inversée, 200-400 mots), chute (ouverture/question)}
+- post_x : {text (max 280 car, percutant), hashtags (2-3 hashtags pertinents)}
+- post_instagram : {caption (150-300 mots, hook fort ligne 1, emojis ok), hashtags (5-8)}
+- post_linkedin : {text (150-250 mots, ton pro, hook expert)}
+- newsletter_blurb : {subject_line (60 car max, donne envie d'ouvrir), body (80-120 mots)}
+- audio_flash : {script (75-110 mots, style oral radio, avec [pause] entre les phrases), duration_target_seconds}
+- seo_meta : {title_tag (55-60 car), meta_description (150-160 car), keywords (array 5-8 mots-clés)}
 
 Ne génère QUE les formats demandés. Réponds en JSON avec un objet "assets".`
 
@@ -157,9 +158,25 @@ function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number 
   )
 }
 
-function AssetCard({ title, icon: Icon, children, color, imageData }: {
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Copier">
+      {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4 text-white/40 hover:text-white/70" />}
+    </button>
+  )
+}
+
+function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: {
   title: string; icon: React.ElementType; children: React.ReactNode; color: string
   imageData?: { url: string; photographer: string; src: string } | null
+  copyText?: string
 }) {
   const [open, setOpen] = useState(true)
   return (
@@ -172,6 +189,7 @@ function AssetCard({ title, icon: Icon, children, color, imageData }: {
           <Icon className="w-4 h-4 text-white" />
         </div>
         <span className="font-semibold text-white flex-1">{title}</span>
+        {copyText && <CopyButton text={copyText} />}
         {open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
       </button>
       {open && (
@@ -193,8 +211,9 @@ function AssetCard({ title, icon: Icon, children, color, imageData }: {
 }
 
 function ArticleView({ article, imageData }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data'] }) {
+  const fullText = `${article.title}\n\n${article.chapo}\n\n${article.body}\n\n${article.chute}`
   return (
-    <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData}>
+    <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={fullText}>
       <h3 className="text-lg font-bold text-white mb-2">{article.title}</h3>
       <p className="text-orange-300 font-medium mb-4 italic">{article.chapo}</p>
       <div className="whitespace-pre-wrap mb-4">{article.body}</div>
@@ -207,7 +226,7 @@ function PostView({ platform, content, icon, color, imageData }: {
   platform: string; content: string; icon: React.ElementType; color: string; imageData?: Assets['image_data']
 }) {
   return (
-    <AssetCard title={`Post ${platform}`} icon={icon} color={color} imageData={imageData}>
+    <AssetCard title={`Post ${platform}`} icon={icon} color={color} imageData={imageData} copyText={content}>
       <p className="whitespace-pre-wrap">{content}</p>
     </AssetCard>
   )
@@ -215,7 +234,7 @@ function PostView({ platform, content, icon, color, imageData }: {
 
 function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
   return (
-    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600">
+    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={audio.script}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">
           ~{audio.duration_target_seconds}s
@@ -231,7 +250,7 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
 function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
   const keywords = Array.isArray(seo.keywords) ? seo.keywords : (seo.keywords as string).split(',').map(k => k.trim())
   return (
-    <AssetCard title="SEO" icon={Search} color="bg-green-600">
+    <AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${seo.title_tag}\n${seo.meta_description}\n${keywords.join(', ')}`}>
       <div className="space-y-2">
         <div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{seo.title_tag}</span></div>
         <div><span className="text-white/40 text-xs">Meta desc:</span> <span>{seo.meta_description}</span></div>
@@ -502,8 +521,8 @@ export default function App() {
               {kit.assets.audio_flash && <AudioView audio={kit.assets.audio_flash} />}
               {kit.assets.seo_meta && <SeoView seo={kit.assets.seo_meta} />}
               {kit.assets.newsletter_blurb && (
-                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600">
-                  <div className="text-amber-300 font-medium mb-2">📧 {kit.assets.newsletter_blurb.subject_line}</div>
+                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line}\n\n${kit.assets.newsletter_blurb.body}`}>
+                  <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line}</div>
                   <p>{kit.assets.newsletter_blurb.body}</p>
                 </AssetCard>
               )}
