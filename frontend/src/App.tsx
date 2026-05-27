@@ -1,5 +1,22 @@
 import { useState, useCallback } from 'react'
-import { Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search, ChevronDown, ChevronUp, Sparkles, Globe2, Paperclip } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  FileText,
+  MessageCircle,
+  Camera,
+  Briefcase,
+  Mic,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Globe2,
+  Newspaper,
+  Check,
+  Copy,
+} from 'lucide-react';
+
 // --- TYPES ---
 interface EditorialPlan {
   content_type: string
