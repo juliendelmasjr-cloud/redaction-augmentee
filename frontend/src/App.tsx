@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   Send,
   Loader2,
@@ -15,6 +15,8 @@ import {
   Newspaper,
   Check,
   Copy,
+  Play,
+  Square,
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -52,10 +54,10 @@ type PipelineStep = 'idle' | 'ingesting' | 'routing' | 'generating' | 'done' | '
 const API_KEY = import.meta.env.VITE_OPENAI_API_KEY || ''
 const API_URL = 'https://api.openai.com/v1/chat/completions'
 const MODEL = import.meta.env.VITE_MODEL || 'gpt-4o-mini'
-const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || ''
+const N8N_WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
 const DEFAULT_USE_N8N = import.meta.env.VITE_USE_N8N === 'true'
 
-// --- PROMPTS (inline pour le front standalone) ---
+// --- PROMPTS ---
 const ROUTER_PROMPT = `Tu es le rédacteur en chef d'une rédaction numérique. Tu reçois un contenu brut et produis un editorial_plan en JSON.
 
 Champs requis :
@@ -64,14 +66,14 @@ Champs requis :
 - tone: factuel | dynamique | analytique | conversationnel | solennel
 - hook_direction: direction de l'accroche (percutante, pas descriptive)
 - key_facts: 5-8 faits vérifiables extraits du contenu
-- target_formats: TOUJOURS inclure au minimum [article, post_x, post_instagram, post_linkedin, newsletter_blurb, audio_flash, seo_meta]. Ne retire un format que s'il est vraiment inapproprié.
-- editorial_notes: instructions spécifiques pour guider la génération (ton, style, ce qu'il faut mettre en avant)
+- target_formats: TOUJOURS inclure au minimum [article, post_x, post_instagram, post_linkedin, newsletter_blurb, audio_flash, seo_meta].
+- editorial_notes: instructions spécifiques pour guider la génération
 
-IMPORTANT : tu es une rédaction complète, pas un blog. Chaque contenu mérite une déclinaison multi-plateforme. Réponds UNIQUEMENT en JSON pur.`
+IMPORTANT : Réponds UNIQUEMENT en JSON pur.`
 
 const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent expert. Tu génères un kit éditorial cohérent à partir d'un plan éditorial ET du contenu source original.
 
-RÈGLE ABSOLUE : utilise UNIQUEMENT les faits, noms, chiffres et informations présents dans le contenu source. Ne JAMAIS inventer de données. Chaque format doit parler du MÊME sujet avec les MÊMES faits.
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits, noms, chiffres et informations présents dans le contenu source. Ne JAMAIS inventer de données.
 
 Formats et structure JSON :
 - article : {title, chapo (2-3 phrases d'accroche), body (pyramide inversée, 200-400 mots), chute (ouverture/question)}
@@ -111,14 +113,10 @@ async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; 
   if (!PEXELS_KEY) return null
   const query = await callLLM(
     `Tu génères des requêtes de recherche d'images pour illustrer des articles de presse.
-
 RÈGLES STRICTES :
 - Réponds UNIQUEMENT avec la requête (2-4 mots en anglais), rien d'autre
-- JAMAIS de noms de villes seuls (pas "Toulouse", pas "Paris")
-- Cherche le SUJET principal : le sport, l'action, les personnes
-- Pour du sport : utilise le sport + l'action (ex: "rugby tackle match", "rugby players celebration", "football stadium crowd")
-- Pour une personne connue : utilise son nom + contexte (ex: "Antoine Dupont rugby")
-- Pour un événement : décris la scène, pas le lieu`,
+- JAMAIS de noms de villes seuls
+- Pour du sport : utilise le sport + l'action (ex: "rugby tackle match")`,
     `Type: ${editorialPlan.content_type}\nAngle: ${editorialPlan.angle}\nFaits clés: ${editorialPlan.key_facts.slice(0, 3).join(', ')}`,
     0.1, 50
   )
@@ -131,6 +129,31 @@ RÈGLES STRICTES :
   if (!data.photos || data.photos.length === 0) return null
   const photo = data.photos[0]
   return { url: photo.src.large2x, photographer: photo.photographer, src: photo.url }
+}
+
+// --- TTS via OpenAI ---
+async function generateAudio(script: string): Promise<string | null> {
+  if (!API_KEY) return null
+  try {
+    const resp = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: script,
+        voice: 'onyx',
+        response_format: 'mp3'
+      })
+    })
+    if (!resp.ok) return null
+    const blob = await resp.blob()
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
 }
 
 // --- COMPONENTS ---
@@ -194,10 +217,10 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className={`rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all`}>
+    <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
       <button
         onClick={() => setOpen(!open)}
-        className={`w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors`}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"
       >
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
           <Icon className="w-4 h-4 text-white" />
@@ -247,6 +270,29 @@ function PostView({ platform, content, icon, color, imageData }: {
 }
 
 function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const handleGenerate = async () => {
+    setLoading(true)
+    const url = await generateAudio(audio.script)
+    setAudioUrl(url)
+    setLoading(false)
+  }
+
+  const handlePlay = () => {
+    if (!audioRef.current) return
+    if (playing) {
+      audioRef.current.pause()
+      setPlaying(false)
+    } else {
+      audioRef.current.play()
+      setPlaying(true)
+    }
+  }
+
   return (
     <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={audio.script}>
       <div className="flex items-center gap-2 mb-3">
@@ -254,7 +300,49 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
           ~{audio.duration_target_seconds}s
         </span>
       </div>
-      <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+
+      {!audioUrl && (
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="flex items-center gap-2 mb-4 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+          {loading ? 'Génération audio...' : 'Générer l\'audio'}
+        </button>
+      )}
+
+      {audioUrl && (
+        <div className="mb-4">
+          <audio
+            ref={audioRef}
+            src={audioUrl}
+            onEnded={() => setPlaying(false)}
+            className="hidden"
+          />
+          <div className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+            <button
+              onClick={handlePlay}
+              className="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center transition-colors"
+            >
+              {playing ? <Square className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white ml-0.5" />}
+            </button>
+            <div className="flex-1">
+              <div className="text-xs text-purple-300 font-medium">Flash audio généré</div>
+              <div className="text-xs text-white/40">Voix IA — {audio.duration_target_seconds}s</div>
+            </div>
+            <a
+              href={audioUrl}
+              download="audio-flash.mp3"
+              className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+            >
+              ↓ MP3
+            </a>
+          </div>
+        </div>
+      )}
+
+      <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-white/60">
         {audio.script}
       </p>
     </AssetCard>
@@ -318,10 +406,9 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0)
   const [useN8N, setUseN8N] = useState(DEFAULT_USE_N8N)
 
-  // --- Pipeline via n8n (production) ---
   const runPipelineN8N = useCallback(async () => {
     if (!input.trim()) return
-    if (!N8N_WEBHOOK_URL) { setError('URL webhook n8n manquante. Ajoute VITE_N8N_WEBHOOK_URL dans .env'); return }
+    if (!N8N_WEBHOOK_URL) { setError('URL webhook n8n manquante. Ajoute VITE_WEBHOOK_URL dans Netlify'); return }
 
     setStep('ingesting')
     setKit(null)
@@ -341,22 +428,25 @@ export default function App() {
       setStep('generating')
       const data = await resp.json()
 
-      const kitData = data as GeneratedKit
+      // Gère la double imbrication possible du kit
+      const kitData = data.kit || data
 
       let imageData: Assets['image_data'] = undefined
       if (kitData.editorial_plan) {
-        imageData = await searchImage(kitData.editorial_plan).catch(() => null) ?? undefined
+        const ep = kitData.editorial_plan.editorial_plan || kitData.editorial_plan
+        imageData = await searchImage(ep).catch(() => null) ?? undefined
       }
 
       clearInterval(timer)
       const totalTime = Date.now() - start
       setElapsed(totalTime)
 
+      const ep = kitData.editorial_plan?.editorial_plan || kitData.editorial_plan
       const assets = kitData.assets || {}
       if (imageData) assets.image_data = imageData
 
       setKit({
-        editorial_plan: kitData.editorial_plan,
+        editorial_plan: ep,
         assets,
         generated_at: kitData.generated_at || new Date().toISOString(),
         generation_time_ms: totalTime
@@ -370,10 +460,9 @@ export default function App() {
     }
   }, [input])
 
-  // --- Pipeline local (OpenAI direct) ---
   const runPipelineLocal = useCallback(async () => {
     if (!input.trim()) return
-    if (!API_KEY) { setError('Clé API manquante. Ajoute VITE_OPENAI_API_KEY dans .env'); return }
+    if (!API_KEY) { setError('Clé API manquante. Ajoute VITE_OPENAI_API_KEY dans Netlify'); return }
 
     setStep('ingesting')
     setKit(null)
@@ -438,7 +527,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
-      {/* Header */}
       <header className="border-b border-white/10 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -462,13 +550,12 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.1 — Phase 1</span>
+            <span className="text-xs text-white/20 font-mono">v0.2 — Phase 2</span>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {/* Input Zone */}
         <div className="mb-8">
           <label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label>
           <div className="relative">
@@ -496,20 +583,16 @@ export default function App() {
           </div>
         </div>
 
-        {/* Pipeline Steps */}
         {step !== 'idle' && <StepIndicator step={step} elapsed={elapsed} />}
 
-        {/* Error */}
         {error && (
           <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
             {error}
           </div>
         )}
 
-        {/* Results */}
         {kit && (
           <div className="animate-in fade-in duration-500">
-            {/* Stats bar */}
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
@@ -518,10 +601,8 @@ export default function App() {
               <span>Mode : {useN8N ? 'n8n' : MODEL}</span>
             </div>
 
-            {/* Editorial Plan */}
             <EditorialPlanView plan={kit.editorial_plan} />
 
-            {/* Assets Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} /></div>}
               {kit.assets.post_x && <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" imageData={kit.assets.image_data} />}
