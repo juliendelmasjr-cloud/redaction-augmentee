@@ -123,14 +123,12 @@ RÈGLES STRICTES :
     0.1, 50
   )
   const searchQuery = query.replace(/['"]/g, '').trim()
-  // Chercher plusieurs photos et prendre la meilleure
   const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=5&orientation=landscape`, {
     headers: { 'Authorization': PEXELS_KEY }
   })
   if (!resp.ok) return null
   const data = await resp.json()
   if (!data.photos || data.photos.length === 0) return null
-  // Prendre la première photo (meilleure pertinence)
   const photo = data.photos[0]
   return { url: photo.src.large2x, photographer: photo.photographer, src: photo.url }
 }
@@ -139,7 +137,7 @@ RÈGLES STRICTES :
 
 function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number }) {
   const steps = [
-    { key: 'ingesting', label: 'Ingestion', icon: Globe },
+    { key: 'ingesting', label: 'Ingestion', icon: Globe2 },
     { key: 'routing', label: 'Analyse éditoriale', icon: Sparkles },
     { key: 'generating', label: 'Génération', icon: Newspaper },
   ]
@@ -343,10 +341,8 @@ export default function App() {
       setStep('generating')
       const data = await resp.json()
 
-      // n8n renvoie le kit complet depuis Assemble Kit Final
       const kitData = data as GeneratedKit
 
-      // Chercher une image en parallèle si le plan éditorial est dispo
       let imageData: Assets['image_data'] = undefined
       if (kitData.editorial_plan) {
         imageData = await searchImage(kitData.editorial_plan).catch(() => null) ?? undefined
@@ -386,11 +382,9 @@ export default function App() {
     const timer = setInterval(() => setElapsed(Date.now() - start), 100)
 
     try {
-      // Couche 1 — Ingestion
       const rawContent = input.trim()
       const wordCount = rawContent.split(/\s+/).length
 
-      // Couche 2 — Routeur
       setStep('routing')
       const routerResult = await callLLM(
         ROUTER_PROMPT,
@@ -399,7 +393,6 @@ export default function App() {
       )
       const editorialPlan = parseJSON(routerResult)
 
-      // Couche 3 — Génération texte + image en parallèle
       setStep('generating')
       const [genResult, imageData] = await Promise.all([
         callLLM(
