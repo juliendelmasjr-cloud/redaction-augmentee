@@ -156,6 +156,29 @@ async function generateAudio(script: string): Promise<string | null> {
   }
 }
 
+// --- HELPERS ---
+// Normalise la structure du kit reçu de n8n
+// Gère : array vs objet, imbrication kit.kit, editorial_plan.editorial_plan
+function normalizeKit(raw: unknown): { editorial_plan: EditorialPlan; assets: Assets; generated_at: string } {
+  // n8n "All Incoming Items" renvoie un array
+  let data = Array.isArray(raw) ? raw[0] : raw
+  // Si le kit est emballé dans un champ "kit"
+  if (data && typeof data === 'object' && 'kit' in data) {
+    data = (data as Record<string, unknown>).kit
+  }
+  const obj = data as Record<string, unknown>
+  // Gère la double imbrication editorial_plan.editorial_plan
+  let ep = obj.editorial_plan as Record<string, unknown>
+  if (ep && typeof ep === 'object' && 'editorial_plan' in ep) {
+    ep = ep.editorial_plan as Record<string, unknown>
+  }
+  return {
+    editorial_plan: ep as unknown as EditorialPlan,
+    assets: (obj.assets || {}) as Assets,
+    generated_at: (obj.generated_at as string) || new Date().toISOString()
+  }
+}
+
 // --- COMPONENTS ---
 
 function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number }) {
@@ -336,7 +359,7 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
               download="audio-flash.mp3"
               className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
             >
-              ↓ MP3
+              MP3
             </a>
           </div>
         </div>
@@ -426,29 +449,28 @@ export default function App() {
       if (!resp.ok) throw new Error(`n8n Error ${resp.status}: ${await resp.text()}`)
 
       setStep('generating')
-      const data = await resp.json()
+      const raw = await resp.json()
 
-      // Gère la double imbrication possible du kit
-      const kitData = data.kit || data
+      // Normalise la réponse n8n (array, imbrication kit, double editorial_plan)
+      const normalized = normalizeKit(raw)
 
+      // Chercher une image en parallèle
       let imageData: Assets['image_data'] = undefined
-      if (kitData.editorial_plan) {
-        const ep = kitData.editorial_plan.editorial_plan || kitData.editorial_plan
-        imageData = await searchImage(ep).catch(() => null) ?? undefined
+      if (normalized.editorial_plan) {
+        imageData = await searchImage(normalized.editorial_plan).catch(() => null) ?? undefined
       }
 
       clearInterval(timer)
       const totalTime = Date.now() - start
       setElapsed(totalTime)
 
-      const ep = kitData.editorial_plan?.editorial_plan || kitData.editorial_plan
-      const assets = kitData.assets || {}
+      const assets = normalized.assets
       if (imageData) assets.image_data = imageData
 
       setKit({
-        editorial_plan: ep,
+        editorial_plan: normalized.editorial_plan,
         assets,
-        generated_at: kitData.generated_at || new Date().toISOString(),
+        generated_at: normalized.generated_at,
         generation_time_ms: totalTime
       })
       setStep('done')
