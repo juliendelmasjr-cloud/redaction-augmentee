@@ -21,23 +21,26 @@ import {
 
 // --- TYPES ---
 interface EditorialPlan {
-  content_type: string
-  angle: string
-  tone: string
-  hook_direction: string
-  key_facts: string[]
-  target_formats: string[]
-  editorial_notes: string | string[]
+  content_type?: string
+  title?: string
+  source_type?: string
+  angle?: string
+  tone?: string
+  hook_direction?: string
+  key_facts?: string[]
+  target_formats?: string[]
+  formats?: string[]
+  editorial_notes?: string | string[]
 }
 
 interface Assets {
-  article?: { title: string; chapo: string; body: string; chute: string }
+  article?: { title: string; chapo?: string; body?: string; chute?: string; content?: string; author?: string; publish_date?: string }
   post_x?: { text: string; hashtags?: string[] } | string
   post_instagram?: { caption: string; hashtags?: string[] } | string
   post_linkedin?: { text: string } | string
-  newsletter_blurb?: { subject_line: string; body: string }
-  audio_flash?: { script: string; duration_target_seconds: number }
-  seo_meta?: { title_tag: string; meta_description: string; keywords: string[] | string }
+  newsletter_blurb?: { subject_line?: string; subject?: string; body: string }
+  audio_flash?: { script: string; duration_target_seconds: number } | string
+  seo_meta?: { title_tag?: string; title?: string; meta_description?: string; description?: string; keywords: string[] | string }
   image_data?: { url: string; photographer: string; src: string }
 }
 
@@ -111,13 +114,14 @@ const PEXELS_KEY = import.meta.env.VITE_PEXELS_API_KEY || ''
 
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   if (!PEXELS_KEY) return null
+  const facts = editorialPlan.key_facts || []
   const query = await callLLM(
     `Tu génères des requêtes de recherche d'images pour illustrer des articles de presse.
 RÈGLES STRICTES :
 - Réponds UNIQUEMENT avec la requête (2-4 mots en anglais), rien d'autre
 - JAMAIS de noms de villes seuls
 - Pour du sport : utilise le sport + l'action (ex: "rugby tackle match")`,
-    `Type: ${editorialPlan.content_type}\nAngle: ${editorialPlan.angle}\nFaits clés: ${editorialPlan.key_facts.slice(0, 3).join(', ')}`,
+    `Type: ${editorialPlan.content_type || editorialPlan.source_type || 'article'}\nAngle: ${editorialPlan.angle || editorialPlan.title || ''}\nFaits clés: ${facts.slice(0, 3).join(', ')}`,
     0.1, 50
   )
   const searchQuery = query.replace(/['"]/g, '').trim()
@@ -157,18 +161,13 @@ async function generateAudio(script: string): Promise<string | null> {
 }
 
 // --- HELPERS ---
-// Normalise la structure du kit reçu de n8n
-// Gère : array vs objet, imbrication kit.kit, editorial_plan.editorial_plan
 function normalizeKit(raw: unknown): { editorial_plan: EditorialPlan; assets: Assets; generated_at: string } {
-  // n8n "All Incoming Items" renvoie un array
-  let data = Array.isArray(raw) ? raw[0] : raw
-  // Si le kit est emballé dans un champ "kit"
-  if (data && typeof data === 'object' && 'kit' in data) {
+  let data: unknown = Array.isArray(raw) ? raw[0] : raw
+  if (data && typeof data === 'object' && 'kit' in (data as Record<string, unknown>)) {
     data = (data as Record<string, unknown>).kit
   }
   const obj = data as Record<string, unknown>
-  // Gère la double imbrication editorial_plan.editorial_plan
-  let ep = obj.editorial_plan as Record<string, unknown>
+  let ep = (obj.editorial_plan || {}) as Record<string, unknown>
   if (ep && typeof ep === 'object' && 'editorial_plan' in ep) {
     ep = ep.editorial_plan as Record<string, unknown>
   }
@@ -177,6 +176,17 @@ function normalizeKit(raw: unknown): { editorial_plan: EditorialPlan; assets: As
     assets: (obj.assets || {}) as Assets,
     generated_at: (obj.generated_at as string) || new Date().toISOString()
   }
+}
+
+function getAudioScript(audio: Assets['audio_flash']): string {
+  if (typeof audio === 'string') return audio
+  if (audio && typeof audio === 'object') return audio.script
+  return ''
+}
+
+function getAudioDuration(audio: Assets['audio_flash']): number {
+  if (typeof audio === 'object' && audio && 'duration_target_seconds' in audio) return audio.duration_target_seconds
+  return 30
 }
 
 // --- COMPONENTS ---
@@ -271,13 +281,17 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
 }
 
 function ArticleView({ article, imageData }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data'] }) {
-  const fullText = `${article.title}\n\n${article.chapo}\n\n${article.body}\n\n${article.chute}`
+  const title = article.title || ''
+  const chapo = article.chapo || ''
+  const body = article.body || article.content || ''
+  const chute = article.chute || ''
+  const fullText = `${title}\n\n${chapo}\n\n${body}\n\n${chute}`.trim()
   return (
     <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={fullText}>
-      <h3 className="text-lg font-bold text-white mb-2">{article.title}</h3>
-      <p className="text-orange-300 font-medium mb-4 italic">{article.chapo}</p>
-      <div className="whitespace-pre-wrap mb-4">{article.body}</div>
-      <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{article.chute}</p>
+      <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
+      {chapo && <p className="text-orange-300 font-medium mb-4 italic">{chapo}</p>}
+      <div className="whitespace-pre-wrap mb-4">{body}</div>
+      {chute && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chute}</p>}
     </AssetCard>
   )
 }
@@ -293,6 +307,8 @@ function PostView({ platform, content, icon, color, imageData }: {
 }
 
 function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
+  const script = getAudioScript(audio)
+  const duration = getAudioDuration(audio)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -300,7 +316,7 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
 
   const handleGenerate = async () => {
     setLoading(true)
-    const url = await generateAudio(audio.script)
+    const url = await generateAudio(script)
     setAudioUrl(url)
     setLoading(false)
   }
@@ -317,10 +333,10 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
   }
 
   return (
-    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={audio.script}>
+    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={script}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">
-          ~{audio.duration_target_seconds}s
+          ~{duration}s
         </span>
       </div>
 
@@ -352,7 +368,7 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
             </button>
             <div className="flex-1">
               <div className="text-xs text-purple-300 font-medium">Flash audio généré</div>
-              <div className="text-xs text-white/40">Voix IA — {audio.duration_target_seconds}s</div>
+              <div className="text-xs text-white/40">Voix IA — {duration}s</div>
             </div>
             <a
               href={audioUrl}
@@ -366,19 +382,21 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
       )}
 
       <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-white/60">
-        {audio.script}
+        {script}
       </p>
     </AssetCard>
   )
 }
 
 function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
-  const keywords = Array.isArray(seo.keywords) ? seo.keywords : (seo.keywords as string).split(',').map(k => k.trim())
+  const titleTag = seo.title_tag || seo.title || ''
+  const metaDesc = seo.meta_description || seo.description || ''
+  const keywords = Array.isArray(seo.keywords) ? seo.keywords : (typeof seo.keywords === 'string' ? seo.keywords.split(',').map(k => k.trim()) : [])
   return (
-    <AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${seo.title_tag}\n${seo.meta_description}\n${keywords.join(', ')}`}>
+    <AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${titleTag}\n${metaDesc}\n${keywords.join(', ')}`}>
       <div className="space-y-2">
-        <div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{seo.title_tag}</span></div>
-        <div><span className="text-white/40 text-xs">Meta desc:</span> <span>{seo.meta_description}</span></div>
+        <div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{titleTag}</span></div>
+        <div><span className="text-white/40 text-xs">Meta desc:</span> <span>{metaDesc}</span></div>
         <div className="flex flex-wrap gap-1 mt-2">
           {keywords.map((k, i) => (
             <span key={i} className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded-full">{k}</span>
@@ -390,6 +408,8 @@ function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
 }
 
 function EditorialPlanView({ plan }: { plan: EditorialPlan }) {
+  const facts = plan.key_facts || []
+  const formats = plan.target_formats || plan.formats || []
   return (
     <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 mb-6">
       <div className="flex items-center gap-2 mb-3">
@@ -399,22 +419,36 @@ function EditorialPlanView({ plan }: { plan: EditorialPlan }) {
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <span className="text-white/40 text-xs block">Type</span>
-          <span className="text-white font-medium">{plan.content_type}</span>
+          <span className="text-white font-medium">{plan.content_type || plan.source_type || '-'}</span>
         </div>
         <div>
           <span className="text-white/40 text-xs block">Ton</span>
-          <span className="text-white font-medium">{plan.tone}</span>
+          <span className="text-white font-medium">{plan.tone || '-'}</span>
         </div>
-        <div className="col-span-2">
-          <span className="text-white/40 text-xs block">Angle</span>
-          <span className="text-orange-200">{plan.angle}</span>
-        </div>
-        <div className="col-span-2">
-          <span className="text-white/40 text-xs block">Faits clés</span>
-          <ul className="list-disc list-inside text-white/70 text-xs mt-1 space-y-1">
-            {plan.key_facts.map((f, i) => <li key={i}>{f}</li>)}
-          </ul>
-        </div>
+        {(plan.angle || plan.title) && (
+          <div className="col-span-2">
+            <span className="text-white/40 text-xs block">Angle</span>
+            <span className="text-orange-200">{plan.angle || plan.title}</span>
+          </div>
+        )}
+        {formats.length > 0 && (
+          <div className="col-span-2">
+            <span className="text-white/40 text-xs block">Formats</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {formats.map((f, i) => (
+                <span key={i} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">{f}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {facts.length > 0 && (
+          <div className="col-span-2">
+            <span className="text-white/40 text-xs block">Faits clés</span>
+            <ul className="list-disc list-inside text-white/70 text-xs mt-1 space-y-1">
+              {facts.map((f, i) => <li key={i}>{f}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -450,11 +484,8 @@ export default function App() {
 
       setStep('generating')
       const raw = await resp.json()
-
-      // Normalise la réponse n8n (array, imbrication kit, double editorial_plan)
       const normalized = normalizeKit(raw)
 
-      // Chercher une image en parallèle
       let imageData: Assets['image_data'] = undefined
       if (normalized.editorial_plan) {
         imageData = await searchImage(normalized.editorial_plan).catch(() => null) ?? undefined
@@ -508,7 +539,7 @@ export default function App() {
       const [genResult, imageData] = await Promise.all([
         callLLM(
           GENERATOR_PROMPT,
-          `Plan éditorial:\n${JSON.stringify(editorialPlan, null, 2)}\n\nContenu source:\n${rawContent}\n\nFormats: ${editorialPlan.target_formats.join(', ')}\n\nRéponds en JSON avec un objet "assets".`,
+          `Plan éditorial:\n${JSON.stringify(editorialPlan, null, 2)}\n\nContenu source:\n${rawContent}\n\nFormats: ${(editorialPlan.target_formats || editorialPlan.formats || []).join(', ')}\n\nRéponds en JSON avec un objet "assets".`,
           0.7, 4000
         ),
         searchImage(editorialPlan).catch(() => null)
@@ -618,7 +649,7 @@ export default function App() {
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
-              <span>{Object.keys(kit.assets).length} formats</span>
+              <span>{Object.keys(kit.assets).filter(k => k !== 'image_data').length} formats</span>
               <span>•</span>
               <span>Mode : {useN8N ? 'n8n' : MODEL}</span>
             </div>
@@ -633,8 +664,8 @@ export default function App() {
               {kit.assets.audio_flash && <AudioView audio={kit.assets.audio_flash} />}
               {kit.assets.seo_meta && <SeoView seo={kit.assets.seo_meta} />}
               {kit.assets.newsletter_blurb && (
-                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line}\n\n${kit.assets.newsletter_blurb.body}`}>
-                  <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line}</div>
+                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject || ''}\n\n${kit.assets.newsletter_blurb.body}`}>
+                  <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject}</div>
                   <p>{kit.assets.newsletter_blurb.body}</p>
                 </AssetCard>
               )}
