@@ -85,6 +85,7 @@ interface GeneratedKit {
 }
 
 type PipelineStep = 'idle' | 'ingesting' | 'routing' | 'generating' | 'done' | 'error'
+type ProfileId = 'bfm' | 'lequipe' | 'konbini' | 'linkedin'
 
 // --- CONFIG ---
 const API_KEY = import.meta.env.VITE_OPENAI_API_KEY || ''
@@ -93,15 +94,51 @@ const MODEL = import.meta.env.VITE_MODEL || 'gpt-4o-mini'
 const N8N_WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
 const DEFAULT_USE_N8N = import.meta.env.VITE_USE_N8N === 'true'
 
+// --- PROFILES ---
+interface EditorialProfile {
+  id: ProfileId
+  label: string
+  emoji: string
+  color: string
+  generatorPrompt: string
+}
+
+const PROFILES: EditorialProfile[] = [
+  {
+    id: 'bfm',
+    label: 'BFM TV',
+    emoji: '🔴',
+    color: 'border-red-500/50 bg-red-500/10 text-red-400',
+    generatorPrompt: `Tu es un rédacteur senior BFM TV. Style : breaking news, direct, factuel, phrases courtes (max 20 mots). Accroche choc en 1 phrase. Article en pyramide inversée, minimum 400 mots. Posts X percutants sans hashtags superflus. Ton urgent et informatif. Réponds en JSON avec un objet "assets".`
+  },
+  {
+    id: 'lequipe',
+    label: "L'Équipe",
+    emoji: '🟡',
+    color: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400',
+    generatorPrompt: `Tu es un rédacteur senior L'Équipe. Style : épique, narratif, chiffres mis en valeur, storytelling autour des athlètes et de la performance. Titres forts et évocateurs. Article avec contexte historique, minimum 400 mots. Posts Instagram avec émotion sportive. Réponds en JSON avec un objet "assets".`
+  },
+  {
+    id: 'konbini',
+    label: 'Konbini',
+    emoji: '🟣',
+    color: 'border-purple-500/50 bg-purple-500/10 text-purple-400',
+    generatorPrompt: `Tu es un rédacteur Konbini. Style : jeune, casual, pop culture, comme un pote qui raconte. Emojis naturels (pas excessifs). Titres questions ou provocateurs. Article dynamique minimum 400 mots. Posts Instagram engageants avec call-to-action. Ton décontracté mais informatif. Réponds en JSON avec un objet "assets".`
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn Pro',
+    emoji: '🔵',
+    color: 'border-blue-500/50 bg-blue-500/10 text-blue-400',
+    generatorPrompt: `Tu es un expert en communication corporate LinkedIn. Style : analytique, structuré, insights business, chiffres clés mis en avant. Article avec intro accroche + 3 points clés + conclusion call-to-action, minimum 400 mots. Post LinkedIn avec hook fort en première ligne. Réponds en JSON avec un objet "assets".`
+  }
+]
+
 // --- PROMPTS ---
 const ROUTER_PROMPT = `Tu es le rédacteur en chef d'une rédaction numérique. Tu reçois un contenu brut et produis un editorial_plan en JSON.
 Champs requis :
 - content_type, angle, tone, hook_direction, key_facts (5-8), target_formats, editorial_notes
 Réponds UNIQUEMENT en JSON pur.`
-
-const GENERATOR_PROMPT = `Tu es un rédacteur polyvalent expert. Génère un kit éditorial cohérent.
-RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source.
-Réponds en JSON avec un objet "assets".`
 
 // --- API ---
 async function callLLM(system: string, user: string, temp = 0.3, maxTokens = 2000): Promise<string> {
@@ -177,6 +214,7 @@ function getAudioScript(audio: Assets['audio_flash']): string {
   if (audio && typeof audio === 'object') return audio.script
   return ''
 }
+
 function getAudioDuration(audio: Assets['audio_flash']): number {
   if (typeof audio === 'object' && audio && 'duration_target_seconds' in audio) return audio.duration_target_seconds
   return 30
@@ -457,14 +495,18 @@ function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
   )
 }
 
-function EditorialPlanView({ plan }: { plan: EditorialPlan }) {
+function EditorialPlanView({ plan, profileId }: { plan: EditorialPlan; profileId: ProfileId }) {
   const facts = getKeyFactsList(plan)
   const formats = plan.target_formats || plan.formats || []
+  const profile = PROFILES.find(p => p.id === profileId)!
   return (
     <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 mb-6">
       <div className="flex items-center gap-2 mb-3">
         <Sparkles className="w-5 h-5 text-orange-400" />
         <h3 className="font-bold text-orange-300">Analyse éditoriale</h3>
+        <span className={`ml-auto text-xs font-medium px-2.5 py-1 rounded-full border ${profile.color}`}>
+          {profile.emoji} {profile.label}
+        </span>
       </div>
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
@@ -522,18 +564,28 @@ export default function App() {
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [useN8N, setUseN8N] = useState(DEFAULT_USE_N8N)
+  const [profile, setProfile] = useState<ProfileId>('bfm')
+  const [activeProfile, setActiveProfile] = useState<ProfileId>('bfm')
 
   const runPipelineN8N = useCallback(async () => {
     if (!input.trim()) return
     if (!N8N_WEBHOOK_URL) { setError('URL webhook n8n manquante'); return }
     setStep('ingesting'); setKit(null); setError('')
+    const currentProfile = profile
+    setActiveProfile(currentProfile)
+    const selectedProfile = PROFILES.find(p => p.id === currentProfile)!
     const start = Date.now()
     const timer = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
       setStep('routing')
       const resp = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: input.trim(), source_type: 'text' })
+        body: JSON.stringify({
+          content: input.trim(),
+          source_type: 'text',
+          profile_id: currentProfile,
+          profile_prompt: selectedProfile.generatorPrompt
+        })
       })
       if (!resp.ok) throw new Error(`n8n Error ${resp.status}: ${await resp.text()}`)
       setStep('generating')
@@ -555,12 +607,15 @@ export default function App() {
       setError(e instanceof Error ? e.message : 'Erreur inconnue')
       setStep('error')
     }
-  }, [input])
+  }, [input, profile])
 
   const runPipelineLocal = useCallback(async () => {
     if (!input.trim()) return
     if (!API_KEY) { setError('Clé API manquante'); return }
     setStep('ingesting'); setKit(null); setError('')
+    const currentProfile = profile
+    setActiveProfile(currentProfile)
+    const selectedProfile = PROFILES.find(p => p.id === currentProfile)!
     const start = Date.now()
     const timer = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
@@ -570,7 +625,11 @@ export default function App() {
       const editorialPlan = parseJSON(routerResult)
       setStep('generating')
       const [genResult, imageData] = await Promise.all([
-        callLLM(GENERATOR_PROMPT, `Plan:\n${JSON.stringify(editorialPlan)}\n\nSource:\n${rawContent}\n\nRéponds en JSON "assets".`, 0.7, 4000),
+        callLLM(
+          selectedProfile.generatorPrompt,
+          `Plan:\n${JSON.stringify(editorialPlan)}\n\nSource:\n${rawContent}\n\nRéponds en JSON "assets".`,
+          0.7, 4000
+        ),
         searchImage(editorialPlan).catch(() => null)
       ])
       const parsed = parseJSON(genResult)
@@ -585,7 +644,7 @@ export default function App() {
       setError(e instanceof Error ? e.message : 'Erreur inconnue')
       setStep('error')
     }
-  }, [input])
+  }, [input, profile])
 
   const runPipeline = useN8N ? runPipelineN8N : runPipelineLocal
 
@@ -600,6 +659,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
+      {/* HEADER */}
       <header className="border-b border-white/10 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -619,12 +679,35 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n Pipeline' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.3 — Hackathon</span>
+            <span className="text-xs text-white/20 font-mono">v0.5 — Hackathon</span>
           </div>
         </div>
       </header>
 
+      {/* PROFILE SELECTOR */}
+      <div className="border-b border-white/5 px-6 py-3">
+        <div className="max-w-6xl mx-auto flex items-center gap-3">
+          <span className="text-xs text-white/30 shrink-0">Profil éditorial :</span>
+          <div className="flex gap-2 flex-wrap">
+            {PROFILES.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setProfile(p.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                  profile === p.id
+                    ? p.color
+                    : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'
+                }`}
+              >
+                {p.emoji} {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* INPUT */}
         <div className="mb-8">
           <label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label>
           <div className="relative">
@@ -653,6 +736,7 @@ export default function App() {
 
         {kit && (
           <div className="animate-in fade-in duration-500">
+            {/* META */}
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
@@ -660,9 +744,12 @@ export default function App() {
               <span>•</span>
               <span>Mode : {useN8N ? 'n8n Pipeline' : MODEL}</span>
               {kit.fact_check && <><span>•</span><span className="text-teal-400">Fact-check actif</span></>}
-              {kit.quality_score?.score_global !== undefined && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
+              {kit.quality_score?.score_global !== undefined && (
+                <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>
+              )}
+            </div>
 
-            <EditorialPlanView plan={kit.editorial_plan} />
+            <EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} />
             {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <FactCheckView factCheck={kit.fact_check} />}
             {kit.quality_score && <QualityScoreView score={kit.quality_score} />}
 
