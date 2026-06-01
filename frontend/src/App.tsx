@@ -109,28 +109,64 @@ const PROFILES: EditorialProfile[] = [
     label: 'BFM TV',
     emoji: '🔴',
     color: 'border-red-500/50 bg-red-500/10 text-red-400',
-    generatorPrompt: `Tu es un rédacteur senior BFM TV. Style : breaking news, direct, factuel, phrases courtes (max 20 mots). Accroche choc en 1 phrase. Article en pyramide inversée, minimum 400 mots. Posts X percutants sans hashtags superflus. Ton urgent et informatif. Réponds en JSON avec un objet "assets".`
+    generatorPrompt: `Tu es un rédacteur senior BFM TV.
+STYLE : breaking news, direct, factuel, phrases courtes (max 20 mots), pyramide inversée.
+ARTICLE : minimum 500 mots. Titre accrocheur + chapô 2 phrases + corps structuré en paragraphes courts + chute. Commence par le fait le plus important. Zéro fioritures.
+POST X : 1 phrase choc + 1 stat clé. Max 280 caractères. Pas de hashtags inutiles.
+POST INSTAGRAM : 3-4 lignes punchy + 3 hashtags pertinents.
+POST LINKEDIN : angle professionnel, 3-4 lignes, 1 question finale.
+NEWSLETTER : objet urgent (ex: "BREAKING :"), corps 5 lignes max.
+AUDIO FLASH : script 4-5 phrases, ton radio urgente, 30 secondes.
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
+Réponds UNIQUEMENT en JSON avec un objet "assets".`
   },
   {
     id: 'lequipe',
     label: "L'Équipe",
     emoji: '🟡',
     color: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400',
-    generatorPrompt: `Tu es un rédacteur senior L'Équipe. Style : épique, narratif, chiffres mis en valeur, storytelling autour des athlètes et de la performance. Titres forts et évocateurs. Article avec contexte historique, minimum 400 mots. Posts Instagram avec émotion sportive. Réponds en JSON avec un objet "assets".`
+    generatorPrompt: `Tu es un rédacteur senior L'Équipe.
+STYLE : épique, narratif, émotionnel, chiffres mis en valeur, storytelling autour de la performance.
+ARTICLE : minimum 500 mots. Titre évocateur + chapô dramatique + récit chronologique avec contexte historique + citations plausibles + chute inspirante.
+POST X : formule épique, chiffre clé en évidence, émotion sportive.
+POST INSTAGRAM : caption narrative avec émotion, 4-5 lignes, emojis sportifs, hashtags pertinents.
+POST LINKEDIN : angle performance/dépassement de soi, insights business du sport.
+NEWSLETTER : objet évocateur, résumé narratif 5 lignes.
+AUDIO FLASH : script dynamique, ton commentateur sportif, 30 secondes.
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
+Réponds UNIQUEMENT en JSON avec un objet "assets".`
   },
   {
     id: 'konbini',
     label: 'Konbini',
     emoji: '🟣',
     color: 'border-purple-500/50 bg-purple-500/10 text-purple-400',
-    generatorPrompt: `Tu es un rédacteur Konbini. Style : jeune, casual, pop culture, comme un pote qui raconte. Emojis naturels (pas excessifs). Titres questions ou provocateurs. Article dynamique minimum 400 mots. Posts Instagram engageants avec call-to-action. Ton décontracté mais informatif. Réponds en JSON avec un objet "assets".`
+    generatorPrompt: `Tu es un rédacteur Konbini.
+STYLE : jeune, cash, pop culture, comme un pote qui raconte, emojis naturels (2-3 max par post).
+ARTICLE : minimum 500 mots. Titre question ou provoc + intro punchline + développement dynamique avec sous-titres courts + références culturelles + chute call-to-action.
+POST X : ton pote qui réagit à l'actu, max 280 caractères, 1-2 emojis.
+POST INSTAGRAM : caption engageante, question à la communauté, 4-5 lignes, hashtags trendy.
+POST LINKEDIN : version adulte mais toujours accessible, hook fort, 3-4 lignes.
+NEWSLETTER : objet intriguant, corps décontracté 5 lignes, CTA friendly.
+AUDIO FLASH : script naturel, ton podcast jeune, 30 secondes.
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
+Réponds UNIQUEMENT en JSON avec un objet "assets".`
   },
   {
     id: 'linkedin',
     label: 'LinkedIn Pro',
     emoji: '🔵',
     color: 'border-blue-500/50 bg-blue-500/10 text-blue-400',
-    generatorPrompt: `Tu es un expert en communication corporate LinkedIn. Style : analytique, structuré, insights business, chiffres clés mis en avant. Article avec intro accroche + 3 points clés + conclusion call-to-action, minimum 400 mots. Post LinkedIn avec hook fort en première ligne. Réponds en JSON avec un objet "assets".`
+    generatorPrompt: `Tu es un expert en communication corporate LinkedIn.
+STYLE : analytique, structuré, orienté insights et impact business, données chiffrées mises en avant.
+ARTICLE : minimum 500 mots. Titre SEO + chapô synthétique + structure en 3 parties titrées (Contexte / Enjeux / Perspectives) + conclusion call-to-action.
+POST X : angle data/insight, chiffre clé, ton expert.
+POST INSTAGRAM : version visuelle, 3-4 lignes, focus sur le chiffre ou l'insight clé.
+POST LINKEDIN : hook fort ligne 1 + développement 4-5 lignes + question ou CTA final. Max 3 hashtags.
+NEWSLETTER : objet professionnel, résumé exécutif 5 lignes, CTA clair.
+AUDIO FLASH : script briefing corporate, ton consultant, 30 secondes.
+RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
+Réponds UNIQUEMENT en JSON avec un objet "assets".`
   }
 ]
 
@@ -707,7 +743,6 @@ export default function App() {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {/* INPUT */}
         <div className="mb-8">
           <label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label>
           <div className="relative">
@@ -736,7 +771,6 @@ export default function App() {
 
         {kit && (
           <div className="animate-in fade-in duration-500">
-            {/* META */}
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
