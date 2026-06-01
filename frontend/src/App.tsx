@@ -660,12 +660,11 @@ export default function App() {
               <span>•</span>
               <span>Mode : {useN8N ? 'n8n Pipeline' : MODEL}</span>
               {kit.fact_check && <><span>•</span><span className="text-teal-400">Fact-check actif</span></>}
-              {kit.quality_score && kit.quality_score.score_global > 0 && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
-            </div>
+              {kit.quality_score?.score_global !== undefined && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
 
             <EditorialPlanView plan={kit.editorial_plan} />
             {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <FactCheckView factCheck={kit.fact_check} />}
-            {kit.quality_score && kit.quality_score.score_global > 0 && <QualityScoreView score={kit.quality_score} />}
+            {kit.quality_score && <QualityScoreView score={kit.quality_score} />}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} /></div>}
