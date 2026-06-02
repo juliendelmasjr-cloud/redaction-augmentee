@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Send,
   Loader2,
@@ -23,6 +23,9 @@ import {
   Star,
   TrendingUp,
   AlertTriangle,
+  Zap,
+  Clock,
+  BarChart3,
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -211,10 +214,8 @@ async function generateAIImage(editorialPlan: EditorialPlan): Promise<{url: stri
 }
 
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
-  // Pollinations en priorité (gratuit, IA générative)
   const aiImage = await generateAIImage(editorialPlan)
   if (aiImage) return aiImage
-  // Fallback Pexels
   if (!PEXELS_KEY) return null
   const facts = editorialPlan.key_facts || []
   const query = await callLLM(
@@ -282,7 +283,106 @@ function getKeyFactsList(plan: EditorialPlan): string[] {
   return []
 }
 
+function countTotalWords(assets: Assets): number {
+  let total = 0
+  const countWords = (text: string | undefined | null) => {
+    if (!text) return 0
+    return text.split(/\s+/).filter(Boolean).length
+  }
+  if (assets.article) {
+    total += countWords(assets.article.title)
+    total += countWords(assets.article.chapo)
+    total += countWords(assets.article.body || assets.article.content)
+    total += countWords(assets.article.chute)
+  }
+  const getPostStr = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => {
+    if (typeof post === 'string') return post
+    if (post && typeof post === 'object') {
+      if ('text' in post) return post.text
+      if ('caption' in post) return post.caption
+    }
+    return ''
+  }
+  if (assets.post_x) total += countWords(getPostStr(assets.post_x))
+  if (assets.post_instagram) total += countWords(getPostStr(assets.post_instagram))
+  if (assets.post_linkedin) total += countWords(getPostStr(assets.post_linkedin))
+  if (assets.newsletter_blurb) total += countWords(assets.newsletter_blurb.body)
+  if (assets.audio_flash) {
+    const script = typeof assets.audio_flash === 'string' ? assets.audio_flash : assets.audio_flash.script
+    total += countWords(script)
+  }
+  if (assets.seo_meta) {
+    total += countWords(assets.seo_meta.title_tag || assets.seo_meta.title)
+    total += countWords(assets.seo_meta.meta_description || assets.seo_meta.description)
+  }
+  return total
+}
+
+function formatTimeSaved(totalWords: number): string {
+  const humanWordsPerHour = 250
+  const totalMinutes = Math.round((totalWords / humanWordsPerHour) * 60)
+  if (totalMinutes >= 60) {
+    const hours = Math.floor(totalMinutes / 60)
+    const mins = totalMinutes % 60
+    return `${hours}h${mins > 0 ? String(mins).padStart(2, '0') : '00'}`
+  }
+  return `${totalMinutes} min`
+}
+
 // --- COMPONENTS ---
+
+function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
+  const totalWords = countTotalWords(kit.assets)
+  const timeSaved = formatTimeSaved(totalWords)
+  const formatCount = Object.keys(kit.assets).filter(k => k !== 'image_data').length
+  const pipelineSeconds = (kit.generation_time_ms / 1000).toFixed(0)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 300)
+    return () => clearTimeout(t)
+  }, [])
+
+  return (
+    <div className={`mb-6 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 p-5 transition-all duration-700 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+      <div className="flex items-center gap-6 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+            <Zap className="w-6 h-6 text-emerald-400" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-emerald-300">{timeSaved}</div>
+            <div className="text-xs text-emerald-400/60">économisées</div>
+          </div>
+        </div>
+        <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-emerald-400/60" />
+          <div>
+            <div className="text-lg font-semibold text-white">{totalWords.toLocaleString()}</div>
+            <div className="text-xs text-white/40">mots générés</div>
+          </div>
+        </div>
+        <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-emerald-400/60" />
+          <div>
+            <div className="text-lg font-semibold text-white">{formatCount}</div>
+            <div className="text-xs text-white/40">formats</div>
+          </div>
+        </div>
+        <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-emerald-400/60" />
+          <div>
+            <div className="text-lg font-semibold text-white">{pipelineSeconds}s</div>
+            <div className="text-xs text-white/40">de pipeline</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function ScoreGauge({ score, label }: { score: number; label: string }) {
   const pct = (score / 10) * 100
@@ -737,7 +837,7 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n Pipeline' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.6 — Hackathon</span>
+            <span className="text-xs text-white/20 font-mono">v0.7 — Hackathon</span>
           </div>
         </div>
       </header>
@@ -793,6 +893,8 @@ export default function App() {
 
         {kit && (
           <div className="animate-in fade-in duration-500">
+            <TimeSavedBanner kit={kit} />
+
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
