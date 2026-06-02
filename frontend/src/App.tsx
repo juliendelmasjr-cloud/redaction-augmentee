@@ -26,6 +26,8 @@ import {
   Zap,
   Clock,
   BarChart3,
+  HelpCircle,
+  X,
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -329,6 +331,53 @@ function formatTimeSaved(totalWords: number): string {
   return `${totalMinutes} min`
 }
 
+// --- STREAMING REVEAL HOOK ---
+function useReveal(delay: number, trigger: unknown): boolean {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    setVisible(false)
+    const t = setTimeout(() => setVisible(true), delay)
+    return () => clearTimeout(t)
+  }, [delay, trigger])
+  return visible
+}
+
+function RevealWrapper({ delay, trigger, children }: { delay: number; trigger: unknown; children: React.ReactNode }) {
+  const visible = useReveal(delay, trigger)
+  return (
+    <div className={`transition-all duration-500 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'}`}>
+      {visible && children}
+    </div>
+  )
+}
+
+// --- TYPEWRITER ---
+function TypewriterText({ text, speed = 25, trigger }: { text: string; speed?: number; trigger: unknown }) {
+  const [displayed, setDisplayed] = useState('')
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    setDisplayed('')
+    setDone(false)
+    let i = 0
+    const interval = setInterval(() => {
+      if (i < text.length) {
+        setDisplayed(text.substring(0, i + 1))
+        i++
+      } else {
+        clearInterval(interval)
+        setDone(true)
+      }
+    }, speed)
+    return () => clearInterval(interval)
+  }, [text, speed, trigger])
+  return (
+    <span>
+      {displayed}
+      {!done && <span className="inline-block w-0.5 h-4 bg-orange-400 ml-0.5 animate-pulse" />}
+    </span>
+  )
+}
+
 // --- COMPONENTS ---
 
 function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
@@ -336,23 +385,27 @@ function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
   const timeSaved = formatTimeSaved(totalWords)
   const formatCount = Object.keys(kit.assets).filter(k => k !== 'image_data').length
   const pipelineSeconds = (kit.generation_time_ms / 1000).toFixed(0)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 300)
-    return () => clearTimeout(t)
-  }, [])
+  const [showInfo, setShowInfo] = useState(false)
 
   return (
-    <div className={`mb-6 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 p-5 transition-all duration-700 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className="mb-6 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 p-5 shadow-lg shadow-emerald-500/10 relative">
       <div className="flex items-center gap-6 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
             <Zap className="w-6 h-6 text-emerald-400" />
           </div>
-          <div>
-            <div className="text-2xl font-bold text-emerald-300">{timeSaved}</div>
-            <div className="text-xs text-emerald-400/60">économisées</div>
+          <div className="flex items-start gap-1">
+            <div>
+              <div className="text-2xl font-bold text-emerald-300">{timeSaved}</div>
+              <div className="text-xs text-emerald-400/60">économisées</div>
+            </div>
+            <button
+              onClick={() => setShowInfo(!showInfo)}
+              className="ml-1 p-0.5 rounded-full hover:bg-emerald-500/20 transition-colors"
+              title="Comment ce temps est-il calculé ?"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-emerald-400/60 hover:text-emerald-300" />
+            </button>
           </div>
         </div>
         <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
@@ -380,6 +433,26 @@ function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
           </div>
         </div>
       </div>
+
+      {showInfo && (
+        <div className="mt-4 pt-4 border-t border-emerald-500/20 text-xs text-white/70 leading-relaxed animate-in fade-in duration-300">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="font-semibold text-emerald-300">Comment ce temps est-il calculé ?</div>
+            <button onClick={() => setShowInfo(false)} className="p-0.5 rounded hover:bg-white/10">
+              <X className="w-3.5 h-3.5 text-white/40" />
+            </button>
+          </div>
+          <p className="mb-2">
+            L'estimation s'appuie sur une vitesse moyenne de <strong className="text-emerald-300">250 mots/heure</strong> pour un rédacteur produisant du contenu <strong>multi-format</strong> (article + posts réseaux sociaux + SEO + newsletter + script audio).
+          </p>
+          <p className="mb-2">
+            Cette vitesse intègre la phase d'adaptation entre formats : un journaliste rédige 400-600 mots/heure sur un seul format, mais cette productivité chute à 200-300 mots/heure quand il doit décliner un contenu sur plusieurs canaux (recherche d'angle, hashtags, optimisation SEO, scripting audio).
+          </p>
+          <p className="text-white/40 text-[10px]">
+            Sources : benchmarks Content Marketing Institute, HubSpot Content Performance Reports.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -550,7 +623,7 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
         <div>
           {imageData && (
             <div className="px-5 pt-2">
-              <img src={imageData.url} alt={`Illustration ${title}`} className="w-full h-48 object-cover rounded-lg" />
+              <img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg" />
               <div className="flex items-center justify-between mt-1 text-xs text-white/30">
                 <span>{imageData.photographer === 'IA Générative' ? '🤖 Image générée par IA' : `Photo : ${imageData.photographer}`}</span>
                 <a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">
@@ -566,14 +639,16 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
   )
 }
 
-function ArticleView({ article, imageData }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data'] }) {
+function ArticleView({ article, imageData, trigger }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data']; trigger: unknown }) {
   const title = article.title || ''
   const chapo = article.chapo || ''
   const body = article.body || article.content || ''
   const chute = article.chute || ''
   return (
     <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${title}\n\n${chapo}\n\n${body}\n\n${chute}`.trim()}>
-      <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
+      <h3 className="text-lg font-bold text-white mb-2">
+        <TypewriterText text={title} speed={20} trigger={trigger} />
+      </h3>
       {chapo && <p className="text-orange-300 font-medium mb-4 italic">{chapo}</p>}
       <div className="whitespace-pre-wrap mb-4">{body}</div>
       {chute && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chute}</p>}
@@ -582,11 +657,11 @@ function ArticleView({ article, imageData }: { article: NonNullable<Assets['arti
   )
 }
 
-function PostView({ platform, content, icon, color, imageData }: {
-  platform: string; content: string; icon: React.ElementType; color: string; imageData?: Assets['image_data']
+function PostView({ platform, content, icon, color }: {
+  platform: string; content: string; icon: React.ElementType; color: string
 }) {
   return (
-    <AssetCard title={`Post ${platform}`} icon={icon} color={color} imageData={imageData} copyText={content}>
+    <AssetCard title={`Post ${platform}`} icon={icon} color={color} copyText={content}>
       <p className="whitespace-pre-wrap">{content}</p>
     </AssetCard>
   )
@@ -724,6 +799,7 @@ export default function App() {
   const [useN8N, setUseN8N] = useState(DEFAULT_USE_N8N)
   const [profile, setProfile] = useState<ProfileId>('bfm')
   const [activeProfile, setActiveProfile] = useState<ProfileId>('bfm')
+  const [revealTrigger, setRevealTrigger] = useState(0)
 
   const runPipelineN8N = useCallback(async () => {
     if (!input.trim()) return
@@ -759,6 +835,7 @@ export default function App() {
       const assets = normalized.assets
       if (imageData) assets.image_data = imageData
       setKit({ ...normalized, generation_time_ms: totalTime })
+      setRevealTrigger(t => t + 1)
       setStep('done')
     } catch (e: unknown) {
       clearInterval(timer)
@@ -796,6 +873,7 @@ export default function App() {
       clearInterval(timer)
       const totalTime = Date.now() - start
       setKit({ editorial_plan: editorialPlan, assets, generated_at: new Date().toISOString(), generation_time_ms: totalTime })
+      setRevealTrigger(t => t + 1)
       setStep('done')
     } catch (e: unknown) {
       clearInterval(timer)
@@ -817,7 +895,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
-      {/* HEADER */}
       <header className="border-b border-white/10 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -837,12 +914,11 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n Pipeline' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.7 — Hackathon</span>
+            <span className="text-xs text-white/20 font-mono">v0.9 — Hackathon</span>
           </div>
         </div>
       </header>
 
-      {/* PROFILE SELECTOR */}
       <div className="border-b border-white/5 px-6 py-3">
         <div className="max-w-6xl mx-auto flex items-center gap-3">
           <span className="text-xs text-white/30 shrink-0">Profil éditorial :</span>
@@ -892,9 +968,7 @@ export default function App() {
         )}
 
         {kit && (
-          <div className="animate-in fade-in duration-500">
-            <TimeSavedBanner kit={kit} />
-
+          <div>
             <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
               <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
               <span>•</span>
@@ -907,23 +981,67 @@ export default function App() {
               )}
             </div>
 
-            <EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} />
-            {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <FactCheckView factCheck={kit.fact_check} />}
-            {kit.quality_score && <QualityScoreView score={kit.quality_score} />}
+            <RevealWrapper delay={200} trigger={revealTrigger}>
+              <EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} />
+            </RevealWrapper>
+
+            {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && (
+              <RevealWrapper delay={500} trigger={revealTrigger}>
+                <FactCheckView factCheck={kit.fact_check} />
+              </RevealWrapper>
+            )}
+
+            {kit.quality_score && (
+              <RevealWrapper delay={800} trigger={revealTrigger}>
+                <QualityScoreView score={kit.quality_score} />
+              </RevealWrapper>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {kit.assets.article && <div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} /></div>}
-              {kit.assets.post_x && <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" imageData={kit.assets.image_data} />}
-              {kit.assets.post_instagram && <PostView platform="Instagram" content={getPostText(kit.assets.post_instagram)} icon={Camera} color="bg-pink-600" imageData={kit.assets.image_data} />}
-              {kit.assets.post_linkedin && <PostView platform="LinkedIn" content={getPostText(kit.assets.post_linkedin)} icon={Briefcase} color="bg-blue-700" />}
-              {kit.assets.audio_flash && <AudioView audio={kit.assets.audio_flash} />}
-              {kit.assets.seo_meta && <SeoView seo={kit.assets.seo_meta} />}
-              {kit.assets.newsletter_blurb && (
-                <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject || ''}\n\n${kit.assets.newsletter_blurb.body}`}>
-                  <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject}</div>
-                  <p>{kit.assets.newsletter_blurb.body}</p>
-                </AssetCard>
+              {kit.assets.article && (
+                <RevealWrapper delay={1100} trigger={revealTrigger}>
+                  <div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} trigger={revealTrigger} /></div>
+                </RevealWrapper>
               )}
+              {kit.assets.post_x && (
+                <RevealWrapper delay={1400} trigger={revealTrigger}>
+                  <PostView platform="X" content={getPostText(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" />
+                </RevealWrapper>
+              )}
+              {kit.assets.post_instagram && (
+                <RevealWrapper delay={1700} trigger={revealTrigger}>
+                  <PostView platform="Instagram" content={getPostText(kit.assets.post_instagram)} icon={Camera} color="bg-pink-600" />
+                </RevealWrapper>
+              )}
+              {kit.assets.post_linkedin && (
+                <RevealWrapper delay={2000} trigger={revealTrigger}>
+                  <PostView platform="LinkedIn" content={getPostText(kit.assets.post_linkedin)} icon={Briefcase} color="bg-blue-700" />
+                </RevealWrapper>
+              )}
+              {kit.assets.audio_flash && (
+                <RevealWrapper delay={2300} trigger={revealTrigger}>
+                  <AudioView audio={kit.assets.audio_flash} />
+                </RevealWrapper>
+              )}
+              {kit.assets.seo_meta && (
+                <RevealWrapper delay={2600} trigger={revealTrigger}>
+                  <SeoView seo={kit.assets.seo_meta} />
+                </RevealWrapper>
+              )}
+              {kit.assets.newsletter_blurb && (
+                <RevealWrapper delay={2900} trigger={revealTrigger}>
+                  <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject || ''}\n\n${kit.assets.newsletter_blurb.body}`}>
+                    <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject}</div>
+                    <p>{kit.assets.newsletter_blurb.body}</p>
+                  </AssetCard>
+                </RevealWrapper>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <RevealWrapper delay={3300} trigger={revealTrigger}>
+                <TimeSavedBanner kit={kit} />
+              </RevealWrapper>
             </div>
           </div>
         )}
