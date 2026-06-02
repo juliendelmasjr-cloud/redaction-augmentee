@@ -123,7 +123,7 @@ POST LINKEDIN : angle professionnel, 3-4 lignes, 1 question finale.
 NEWSLETTER : objet urgent (ex: "BREAKING :"), corps 5 lignes max.
 AUDIO FLASH : script 4-5 phrases, ton radio urgente, 30 secondes.
 RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
-Réponds UNIQUEMENT en JSON avec un objet "assets".`
+Réponds UNIQUEMENT en JSON avec un objet "assets". Tous les champs de texte doivent être des chaînes de caractères, jamais des objets imbriqués.`
   },
   {
     id: 'lequipe',
@@ -139,7 +139,7 @@ POST LINKEDIN : angle performance/dépassement de soi, insights business du spor
 NEWSLETTER : objet évocateur, résumé narratif 5 lignes.
 AUDIO FLASH : script dynamique, ton commentateur sportif, 30 secondes.
 RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
-Réponds UNIQUEMENT en JSON avec un objet "assets".`
+Réponds UNIQUEMENT en JSON avec un objet "assets". Tous les champs de texte doivent être des chaînes de caractères, jamais des objets imbriqués.`
   },
   {
     id: 'konbini',
@@ -155,7 +155,7 @@ POST LINKEDIN : version adulte mais toujours accessible, hook fort, 3-4 lignes.
 NEWSLETTER : objet intriguant, corps décontracté 5 lignes, CTA friendly.
 AUDIO FLASH : script naturel, ton podcast jeune, 30 secondes.
 RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
-Réponds UNIQUEMENT en JSON avec un objet "assets".`
+Réponds UNIQUEMENT en JSON avec un objet "assets". Tous les champs de texte doivent être des chaînes de caractères, jamais des objets imbriqués.`
   },
   {
     id: 'linkedin',
@@ -171,7 +171,7 @@ POST LINKEDIN : hook fort ligne 1 + développement 4-5 lignes + question ou CTA 
 NEWSLETTER : objet professionnel, résumé exécutif 5 lignes, CTA clair.
 AUDIO FLASH : script briefing corporate, ton consultant, 30 secondes.
 RÈGLE ABSOLUE : utilise UNIQUEMENT les faits du contenu source. Ne jamais inventer.
-Réponds UNIQUEMENT en JSON avec un objet "assets".`
+Réponds UNIQUEMENT en JSON avec un objet "assets". Tous les champs de texte doivent être des chaînes de caractères, jamais des objets imbriqués.`
   }
 ]
 
@@ -248,6 +248,27 @@ async function generateAudio(script: string): Promise<string | null> {
 }
 
 // --- HELPERS ---
+
+// safeText : convertit n'importe quelle valeur en string utilisable par React
+// Gère les cas où le LLM renvoie un objet imbriqué au lieu d'une string
+function safeText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map(safeText).filter(Boolean).join('\n\n')
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    // Essaie les champs texte usuels
+    if ('paragraph' in obj) return safeText(obj.paragraph)
+    if ('text' in obj) return safeText(obj.text)
+    if ('content' in obj) return safeText(obj.content)
+    if ('value' in obj) return safeText(obj.value)
+    // Fallback : concatène toutes les valeurs scalaires/string
+    return Object.values(obj).map(safeText).filter(Boolean).join('\n\n')
+  }
+  return ''
+}
+
 function normalizeKit(raw: unknown): GeneratedKit & { generation_time_ms: number } {
   let data: unknown = Array.isArray(raw) ? raw[0] : raw
   if (data && typeof data === 'object' && 'kit' in (data as Record<string, unknown>)) {
@@ -270,7 +291,7 @@ function normalizeKit(raw: unknown): GeneratedKit & { generation_time_ms: number
 
 function getAudioScript(audio: Assets['audio_flash']): string {
   if (typeof audio === 'string') return audio
-  if (audio && typeof audio === 'object') return audio.script
+  if (audio && typeof audio === 'object') return safeText(audio.script)
   return ''
 }
 
@@ -280,8 +301,8 @@ function getAudioDuration(audio: Assets['audio_flash']): number {
 }
 
 function getKeyFactsList(plan: EditorialPlan): string[] {
-  if (plan.key_facts?.length) return plan.key_facts
-  if (plan.key_points?.length) return plan.key_points.map(kp => kp.point || kp.event || kp.details || '')
+  if (plan.key_facts?.length) return plan.key_facts.map(safeText)
+  if (plan.key_points?.length) return plan.key_points.map(kp => safeText(kp.point || kp.event || kp.details || ''))
   return []
 }
 
@@ -292,30 +313,22 @@ function countTotalWords(assets: Assets): number {
     return text.split(/\s+/).filter(Boolean).length
   }
   if (assets.article) {
-    total += countWords(assets.article.title)
-    total += countWords(assets.article.chapo)
-    total += countWords(assets.article.body || assets.article.content)
-    total += countWords(assets.article.chute)
+    total += countWords(safeText(assets.article.title))
+    total += countWords(safeText(assets.article.chapo))
+    total += countWords(safeText(assets.article.body || assets.article.content))
+    total += countWords(safeText(assets.article.chute))
   }
-  const getPostStr = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => {
-    if (typeof post === 'string') return post
-    if (post && typeof post === 'object') {
-      if ('text' in post) return post.text
-      if ('caption' in post) return post.caption
-    }
-    return ''
-  }
-  if (assets.post_x) total += countWords(getPostStr(assets.post_x))
-  if (assets.post_instagram) total += countWords(getPostStr(assets.post_instagram))
-  if (assets.post_linkedin) total += countWords(getPostStr(assets.post_linkedin))
-  if (assets.newsletter_blurb) total += countWords(assets.newsletter_blurb.body)
+  if (assets.post_x) total += countWords(safeText(assets.post_x))
+  if (assets.post_instagram) total += countWords(safeText(assets.post_instagram))
+  if (assets.post_linkedin) total += countWords(safeText(assets.post_linkedin))
+  if (assets.newsletter_blurb) total += countWords(safeText(assets.newsletter_blurb.body))
   if (assets.audio_flash) {
-    const script = typeof assets.audio_flash === 'string' ? assets.audio_flash : assets.audio_flash.script
+    const script = typeof assets.audio_flash === 'string' ? assets.audio_flash : safeText(assets.audio_flash.script)
     total += countWords(script)
   }
   if (assets.seo_meta) {
-    total += countWords(assets.seo_meta.title_tag || assets.seo_meta.title)
-    total += countWords(assets.seo_meta.meta_description || assets.seo_meta.description)
+    total += countWords(safeText(assets.seo_meta.title_tag || assets.seo_meta.title))
+    total += countWords(safeText(assets.seo_meta.meta_description || assets.seo_meta.description))
   }
   return total
 }
@@ -501,13 +514,13 @@ function QualityScoreView({ score }: { score: QualityScore }) {
         {score.points_forts?.length > 0 && (
           <div>
             <div className="flex items-center gap-1 mb-1 text-green-400"><TrendingUp className="w-3 h-3" /> Points forts</div>
-            {score.points_forts.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {p}</p>)}
+            {score.points_forts.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}
           </div>
         )}
         {score.points_amelioration?.length > 0 && (
           <div>
             <div className="flex items-center gap-1 mb-1 text-amber-400"><AlertTriangle className="w-3 h-3" /> À améliorer</div>
-            {score.points_amelioration.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {p}</p>)}
+            {score.points_amelioration.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}
           </div>
         )}
       </div>
@@ -533,7 +546,7 @@ function FactCheckView({ factCheck }: { factCheck: FactCheck }) {
                 ? <ShieldCheck className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
                 : <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />}
               <div>
-                <span className={f.verified ? 'text-white/80' : 'text-amber-200/80'}>{f.fact}</span>
+                <span className={f.verified ? 'text-white/80' : 'text-amber-200/80'}>{safeText(f.fact)}</span>
                 {f.source && (
                   <a href={f.source} target="_blank" rel="noopener noreferrer" className="ml-2 text-teal-400/60 hover:text-teal-300 inline-flex items-center gap-1 text-xs">
                     source <ExternalLink className="w-3 h-3" />
@@ -550,7 +563,7 @@ function FactCheckView({ factCheck }: { factCheck: FactCheck }) {
           <div className="flex flex-wrap gap-2">
             {factCheck.sources.map((s, i) => (
               <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-teal-400/50 hover:text-teal-300 flex items-center gap-1">
-                {s.title.substring(0, 40)} <ExternalLink className="w-2.5 h-2.5" />
+                {safeText(s.title).substring(0, 40)} <ExternalLink className="w-2.5 h-2.5" />
               </a>
             ))}
           </div>
@@ -640,10 +653,12 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
 }
 
 function ArticleView({ article, imageData, trigger }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data']; trigger: unknown }) {
-  const title = article.title || ''
-  const chapo = article.chapo || ''
-  const body = article.body || article.content || ''
-  const chute = article.chute || ''
+  const title = safeText(article.title)
+  const chapo = safeText(article.chapo)
+  const body = safeText(article.body || article.content)
+  const chute = safeText(article.chute)
+  const author = safeText(article.author)
+  const publishDate = safeText(article.publish_date)
   return (
     <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${title}\n\n${chapo}\n\n${body}\n\n${chute}`.trim()}>
       <h3 className="text-lg font-bold text-white mb-2">
@@ -652,7 +667,7 @@ function ArticleView({ article, imageData, trigger }: { article: NonNullable<Ass
       {chapo && <p className="text-orange-300 font-medium mb-4 italic">{chapo}</p>}
       <div className="whitespace-pre-wrap mb-4">{body}</div>
       {chute && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chute}</p>}
-      {article.author && <p className="text-xs text-white/30 mt-2">Par {article.author} — {article.publish_date}</p>}
+      {author && <p className="text-xs text-white/30 mt-2">Par {author} {publishDate && `— ${publishDate}`}</p>}
     </AssetCard>
   )
 }
@@ -712,9 +727,11 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
 }
 
 function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
-  const titleTag = seo.title_tag || seo.title || ''
-  const metaDesc = seo.meta_description || seo.description || ''
-  const keywords = Array.isArray(seo.keywords) ? seo.keywords : (typeof seo.keywords === 'string' ? seo.keywords.split(',').map(k => k.trim()) : [])
+  const titleTag = safeText(seo.title_tag || seo.title)
+  const metaDesc = safeText(seo.meta_description || seo.description)
+  const keywords = Array.isArray(seo.keywords)
+    ? seo.keywords.map(safeText)
+    : (typeof seo.keywords === 'string' ? seo.keywords.split(',').map(k => k.trim()) : [])
   return (
     <AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${titleTag}\n${metaDesc}\n${keywords.join(', ')}`}>
       <div className="space-y-2">
@@ -744,35 +761,35 @@ function EditorialPlanView({ plan, profileId }: { plan: EditorialPlan; profileId
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <span className="text-white/40 text-xs block">Type</span>
-          <span className="text-white font-medium">{plan.content_type || plan.source_type || 'article'}</span>
+          <span className="text-white font-medium">{safeText(plan.content_type || plan.source_type || 'article')}</span>
         </div>
         <div>
           <span className="text-white/40 text-xs block">Ton</span>
-          <span className="text-white font-medium">{plan.tone || 'informatif'}</span>
+          <span className="text-white font-medium">{safeText(plan.tone || 'informatif')}</span>
         </div>
         {(plan.angle || plan.title || plan.headline) && (
           <div className="col-span-2">
             <span className="text-white/40 text-xs block">Angle</span>
-            <span className="text-orange-200">{plan.angle || plan.headline || plan.title}</span>
+            <span className="text-orange-200">{safeText(plan.angle || plan.headline || plan.title)}</span>
           </div>
         )}
         {plan.summary && (
           <div className="col-span-2">
             <span className="text-white/40 text-xs block">Résumé</span>
-            <span className="text-white/70 text-xs">{plan.summary}</span>
+            <span className="text-white/70 text-xs">{safeText(plan.summary)}</span>
           </div>
         )}
         {plan.target_audience && (
           <div className="col-span-2">
             <span className="text-white/40 text-xs block">Audience cible</span>
-            <span className="text-white/70 text-xs">{plan.target_audience}</span>
+            <span className="text-white/70 text-xs">{safeText(plan.target_audience)}</span>
           </div>
         )}
         {formats.length > 0 && (
           <div className="col-span-2">
             <span className="text-white/40 text-xs block">Formats</span>
             <div className="flex flex-wrap gap-1 mt-1">
-              {formats.map((f, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">{f}</span>)}
+              {formats.map((f, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">{safeText(f)}</span>)}
             </div>
           </div>
         )}
@@ -862,7 +879,7 @@ export default function App() {
       const [genResult, imageData] = await Promise.all([
         callLLM(
           selectedProfile.generatorPrompt,
-          `Plan:\n${JSON.stringify(editorialPlan)}\n\nSource:\n${rawContent}\n\nRéponds en JSON "assets".`,
+          `Plan:\n${JSON.stringify(editorialPlan)}\n\nSource:\n${rawContent}\n\nRéponds en JSON "assets". Tous les champs texte doivent être des chaînes simples, pas des objets imbriqués.`,
           0.7, 4000
         ),
         searchImage(editorialPlan).catch(() => null)
@@ -885,12 +902,7 @@ export default function App() {
   const runPipeline = useN8N ? runPipelineN8N : runPipelineLocal
 
   const getPostText = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => {
-    if (typeof post === 'string') return post
-    if (post && typeof post === 'object') {
-      if ('text' in post) return post.text
-      if ('caption' in post) return post.caption
-    }
-    return ''
+    return safeText(post)
   }
 
   return (
@@ -914,7 +926,7 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n Pipeline' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.9 — Hackathon</span>
+            <span className="text-xs text-white/20 font-mono">v1.0 — Hackathon</span>
           </div>
         </div>
       </header>
@@ -1030,9 +1042,9 @@ export default function App() {
               )}
               {kit.assets.newsletter_blurb && (
                 <RevealWrapper delay={2900} trigger={revealTrigger}>
-                  <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject || ''}\n\n${kit.assets.newsletter_blurb.body}`}>
-                    <div className="text-amber-300 font-medium mb-2">{kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject}</div>
-                    <p>{kit.assets.newsletter_blurb.body}</p>
+                  <AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}\n\n${safeText(kit.assets.newsletter_blurb.body)}`}>
+                    <div className="text-amber-300 font-medium mb-2">{safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}</div>
+                    <p className="whitespace-pre-wrap">{safeText(kit.assets.newsletter_blurb.body)}</p>
                   </AssetCard>
                 </RevealWrapper>
               )}
