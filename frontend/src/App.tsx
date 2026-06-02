@@ -194,12 +194,32 @@ function parseJSON(text: string) {
 
 const PEXELS_KEY = import.meta.env.VITE_PEXELS_API_KEY || ''
 
+async function generateAIImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  try {
+    const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
+    const facts = editorialPlan.key_facts || []
+    const promptQuery = await callLLM(
+      'Réponds UNIQUEMENT avec un prompt image en anglais (10-15 mots), style photo journalistique, réaliste. Rien d\'autre.',
+      `Sujet: ${angle}\nFaits: ${facts.slice(0, 2).join(', ')}`,
+      0.3, 80
+    )
+    const clean = promptQuery.replace(/['"]/g, '').trim()
+    const encoded = encodeURIComponent(`${clean}, photojournalism, realistic, high quality`)
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=630&nologo=true&seed=${Date.now()}`
+    return { url, photographer: 'IA Générative', src: 'https://pollinations.ai' }
+  } catch { return null }
+}
+
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  // Pollinations en priorité (gratuit, IA générative)
+  const aiImage = await generateAIImage(editorialPlan)
+  if (aiImage) return aiImage
+  // Fallback Pexels
   if (!PEXELS_KEY) return null
   const facts = editorialPlan.key_facts || []
   const query = await callLLM(
     'Réponds UNIQUEMENT avec une requête image (2-4 mots en anglais), rien d\'autre.',
-    `Type: ${editorialPlan.content_type || editorialPlan.source_type || 'article'}\nAngle: ${editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''}\nFaits: ${facts.slice(0, 3).join(', ')}`,
+    `Type: ${editorialPlan.content_type || 'article'}\nAngle: ${editorialPlan.angle || ''}\nFaits: ${facts.slice(0, 3).join(', ')}`,
     0.1, 50
   )
   const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query.replace(/['"]/g, '').trim())}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
@@ -432,8 +452,10 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
             <div className="px-5 pt-2">
               <img src={imageData.url} alt={`Illustration ${title}`} className="w-full h-48 object-cover rounded-lg" />
               <div className="flex items-center justify-between mt-1 text-xs text-white/30">
-                <span>Photo : {imageData.photographer}</span>
-                <a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">Pexels</a>
+                <span>{imageData.photographer === 'IA Générative' ? '🤖 Image générée par IA' : `Photo : ${imageData.photographer}`}</span>
+                <a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">
+                  {imageData.photographer === 'IA Générative' ? 'Pollinations.ai' : 'Pexels'}
+                </a>
               </div>
             </div>
           )}
@@ -715,7 +737,7 @@ export default function App() {
               <div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />
               {useN8N ? 'n8n Pipeline' : 'Local'}
             </button>
-            <span className="text-xs text-white/20 font-mono">v0.5 — Hackathon</span>
+            <span className="text-xs text-white/20 font-mono">v0.6 — Hackathon</span>
           </div>
         </div>
       </header>
