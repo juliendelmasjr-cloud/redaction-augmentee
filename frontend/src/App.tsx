@@ -3,7 +3,7 @@ import {
   Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search,
   ChevronDown, ChevronUp, Sparkles, Globe2, Newspaper, Check, Copy, Play,
   Square, ShieldCheck, ShieldAlert, ExternalLink, Star, TrendingUp,
-  AlertTriangle, Zap, Clock, BarChart3, HelpCircle, X,
+  AlertTriangle, Zap, Clock, BarChart3, HelpCircle, X, Wand2,
 } from 'lucide-react';
 
 // --- TYPES ---
@@ -356,13 +356,86 @@ function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: 
 }
 
 function ArticleView({ article, imageData, trigger }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data']; trigger: unknown }) {
-  const t = safeText(article.title), ch = safeText(article.chapo), b = safeText(article.body || article.content), chu = safeText(article.chute), au = safeText(article.author), pd = safeText(article.publish_date)
-  return (<AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${t}\n\n${ch}\n\n${b}\n\n${chu}`.trim()}>
-    <h3 className="text-lg font-bold text-white mb-2"><TypewriterText text={t} speed={20} trigger={trigger} /></h3>
+  const [currentTitle, setCurrentTitle] = useState('')
+  const ch = safeText(article.chapo), b = safeText(article.body || article.content), chu = safeText(article.chute), au = safeText(article.author)
+  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  const originalTitle = safeText(article.title)
+
+  // Titre Lab state
+  const [showTitreLab, setShowTitreLab] = useState(false)
+  const [altTitles, setAltTitles] = useState<Array<{ title: string; score: number; style: string }>>([])
+  const [loadingTitles, setLoadingTitles] = useState(false)
+
+  useEffect(() => { setCurrentTitle(originalTitle); setShowTitreLab(false); setAltTitles([]) }, [originalTitle])
+
+  const generateAltTitles = async () => {
+    setLoadingTitles(true)
+    try {
+      const result = await callLLM(
+        `Tu es un expert en titraille presse et en optimisation de clics. À partir d'un titre et du chapô d'un article, génère exactement 3 titres alternatifs avec des styles différents.
+Pour chaque titre, attribue un score de viralité estimé (0-100) basé sur : émotion, curiosité, spécificité, urgence.
+Réponds UNIQUEMENT en JSON :
+[
+  { "title": "...", "score": 85, "style": "Émotionnel" },
+  { "title": "...", "score": 72, "style": "Factuel" },
+  { "title": "...", "score": 91, "style": "Provocateur" }
+]`,
+        `Titre actuel : ${currentTitle}\nChapô : ${ch}\nDébut article : ${b.substring(0, 200)}`,
+        0.8, 500
+      )
+      const parsed = JSON.parse(result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim())
+      setAltTitles(parsed)
+    } catch { setAltTitles([]) }
+    setLoadingTitles(false)
+  }
+
+  const viralityColor = (score: number) => score >= 80 ? 'text-green-400' : score >= 60 ? 'text-yellow-400' : 'text-orange-400'
+  const viralityBg = (score: number) => score >= 80 ? 'bg-green-400' : score >= 60 ? 'bg-yellow-400' : 'bg-orange-400'
+
+  return (<AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${currentTitle}\n\n${ch}\n\n${b}\n\n${chu}`.trim()}>
+    <div className="flex items-start justify-between gap-2 mb-2">
+      <h3 className="text-lg font-bold text-white flex-1"><TypewriterText text={currentTitle} speed={20} trigger={trigger} /></h3>
+      <button onClick={() => { if (!showTitreLab) generateAltTitles(); setShowTitreLab(!showTitreLab) }}
+        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-xs font-medium text-white transition-all shadow-lg shadow-violet-500/20">
+        <Wand2 className="w-3.5 h-3.5" /> Titre Lab
+      </button>
+    </div>
+
+    {showTitreLab && (
+      <div className="mb-4 p-4 rounded-lg border border-violet-500/30 bg-violet-500/5">
+        <div className="flex items-center gap-2 mb-3">
+          <Wand2 className="w-4 h-4 text-violet-400" />
+          <span className="text-sm font-semibold text-violet-300">Titre Lab — Optimiseur de titres</span>
+        </div>
+        {loadingTitles ? (
+          <div className="flex items-center gap-2 text-sm text-white/50 py-3"><Loader2 className="w-4 h-4 animate-spin" /> Génération de titres alternatifs...</div>
+        ) : altTitles.length > 0 ? (
+          <div className="space-y-2">
+            {altTitles.map((alt, i) => (
+              <button key={i} onClick={() => { setCurrentTitle(alt.title); setShowTitreLab(false) }}
+                className="w-full text-left p-3 rounded-lg border border-white/10 hover:border-violet-500/50 hover:bg-violet-500/10 transition-all group">
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <span className="text-xs text-violet-400/70 font-medium">{alt.style}</span>
+                  <span className={`text-xs font-bold ${viralityColor(alt.score)}`}>{alt.score}/100</span>
+                </div>
+                <p className="text-sm text-white/90 font-medium mb-2 group-hover:text-white">{alt.title}</p>
+                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div className={`h-full rounded-full ${viralityBg(alt.score)} transition-all duration-500`} style={{ width: `${alt.score}%` }} />
+                </div>
+              </button>
+            ))}
+            <p className="text-[10px] text-white/30 mt-2">Cliquez sur un titre pour l'appliquer à l'article</p>
+          </div>
+        ) : (
+          <p className="text-sm text-white/40 py-2">Aucun titre généré. Réessayez.</p>
+        )}
+      </div>
+    )}
+
     {ch && <p className="text-orange-300 font-medium mb-4 italic">{ch}</p>}
     <div className="whitespace-pre-wrap mb-4">{b}</div>
     {chu && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chu}</p>}
-    {au && <p className="text-xs text-white/30 mt-2">Par {au} {pd && `— ${pd}`}</p>}
+    {au && <p className="text-xs text-white/30 mt-2">Par {au} — {today}</p>}
   </AssetCard>)
 }
 
@@ -446,7 +519,7 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
       <header className="border-b border-white/10 px-6 py-4"><div className="max-w-6xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div><div><h1 className="text-xl font-bold">Rédaction Augmentée</h1><p className="text-xs text-white/40">by Altiarc — Pipeline IA éditorial multi-format</p></div></div>
-        <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.1 — Hackathon</span></div>
+        <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.2 — Hackathon</span></div>
       </div></header>
 
       <div className="border-b border-white/5 px-6 py-3"><div className="max-w-6xl mx-auto flex items-center gap-3"><span className="text-xs text-white/30 shrink-0">Profil éditorial :</span><div className="flex gap-2 flex-wrap">{PROFILES.map(p => <button key={p.id} onClick={() => setProfile(p.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${profile === p.id ? p.color : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'}`}>{p.emoji} {p.label}</button>)}</div></div></div>
