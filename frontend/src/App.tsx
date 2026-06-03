@@ -516,27 +516,82 @@ export default function App() {
   const gpt = (post: Assets['post_x'] | Assets['post_instagram'] | Assets['post_linkedin']): string => safeText(post)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
-      <header className="border-b border-white/10 px-6 py-4"><div className="max-w-6xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div><div><h1 className="text-xl font-bold">Rédaction Augmentée</h1><p className="text-xs text-white/40">by Altiarc — Pipeline IA éditorial multi-format</p></div></div>
-        <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.2 — Hackathon</span></div>
-      </div></header>
+    <div className="min-h-screen bg-gray-950 text-white relative overflow-hidden">
+      {/* Fond décoratif */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-orange-500/5 rounded-full blur-[120px]" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-violet-500/5 rounded-full blur-[120px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-teal-500/3 rounded-full blur-[150px]" />
+      </div>
 
-      <div className="border-b border-white/5 px-6 py-3"><div className="max-w-6xl mx-auto flex items-center gap-3"><span className="text-xs text-white/30 shrink-0">Profil éditorial :</span><div className="flex gap-2 flex-wrap">{PROFILES.map(p => <button key={p.id} onClick={() => setProfile(p.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${profile === p.id ? p.color : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'}`}>{p.emoji} {p.label}</button>)}</div></div></div>
-
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="mb-8"><label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label><div className="relative">
-          <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="Le Stade Toulousain s'est imposé 31-24 face à l'Union Bordeaux-Bègles en demi-finale du Top 14..." className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-white/20 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all" disabled={step !== 'idle' && step !== 'done' && step !== 'error'} />
-          <div className="absolute bottom-3 right-3 flex items-center gap-3"><span className="text-xs text-white/30">{input.split(/\s+/).filter(Boolean).length} mots</span>
-            <button onClick={run} disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-medium text-sm hover:shadow-lg hover:shadow-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all">{step !== 'idle' && step !== 'done' && step !== 'error' ? <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</> : <><Send className="w-4 h-4" /> Générer le kit</>}</button></div>
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-gray-950/80 backdrop-blur-xl px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight">Rédaction Augmentée</h1>
+              <p className="text-xs text-white/40">by <span className="text-orange-400/70">Altiarc</span> — Pipeline IA éditorial multi-format</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setUseN8N(!useN8N)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium transition-all ${
+                useN8N ? 'bg-green-500/15 text-green-400 border border-green-500/30 shadow-sm shadow-green-500/10' : 'bg-white/5 text-white/40 border border-white/10'
+              }`}>
+              <div className={`w-2 h-2 rounded-full transition-colors ${useN8N ? 'bg-green-400 shadow-sm shadow-green-400' : 'bg-white/20'}`} />
+              {useN8N ? 'n8n Pipeline' : 'Local'}
+            </button>
+            <span className="text-xs text-white/15 font-mono tracking-wider">v2.3</span>
+          </div>
         </div>
-          <div className="flex gap-2 mt-3 flex-wrap">
-            <span className="text-xs text-white/30 self-center">Démos :</span>
-            <button onClick={() => { setInput("Le Stade Toulousain remporte son 23e titre de champion de France en battant La Rochelle 29-17 en finale du Top 14 au Stade de France. Antoine Dupont, élu homme du match, a inscrit deux essais. 80 000 spectateurs ont assisté à la rencontre. Le capitaine Julien Marchand a soulevé le Bouclier de Brennus sous les ovations."); setProfile('lequipe') }} className="text-xs px-3 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/5 text-yellow-400 hover:bg-yellow-500/15 transition-all">🏉 Rugby — L'Équipe</button>
-            <button onClick={() => { setInput("Emmanuel Macron a annoncé ce lundi la dissolution de l'Assemblée nationale, trois jours après les élections européennes marquées par une victoire historique du Rassemblement National avec 37% des voix. Le président a déclaré lors d'une allocution télévisée que \"la montée des extrêmes appelle une clarification démocratique\". Les élections législatives anticipées sont fixées aux 22 et 29 juin. La Première ministre Élisabeth Borne a présenté sa démission. Les marchés financiers ont réagi immédiatement, le CAC 40 perdant 2,3% en clôture."); setProfile('bfm') }} className="text-xs px-3 py-1.5 rounded-full border border-red-500/30 bg-red-500/5 text-red-400 hover:bg-red-500/15 transition-all">🏛️ Politique — BFM</button>
-            <button onClick={() => { setInput("Carlos Alcaraz remporte Roland-Garros 2026 en battant Jannik Sinner en finale 6-3, 2-6, 5-7, 6-1, 6-3. L'Espagnol de 23 ans soulève son troisième trophée à Paris devant 15 000 spectateurs sur le court Philippe-Chatrier. Il devient le plus jeune joueur à remporter trois Roland-Garros depuis Rafael Nadal."); setProfile('konbini') }} className="text-xs px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/15 transition-all">🎾 Tennis — Konbini</button>
-            <button onClick={() => { setInput("OpenAI annonce un chiffre d'affaires annualisé de 12 milliards de dollars, soit une multiplication par 3 en un an. L'entreprise dirigée par Sam Altman compte désormais 300 millions d'utilisateurs hebdomadaires de ChatGPT. Microsoft reste le principal investisseur avec 13 milliards de dollars injectés depuis 2019."); setProfile('linkedin') }} className="text-xs px-3 py-1.5 rounded-full border border-blue-500/30 bg-blue-500/5 text-blue-400 hover:bg-blue-500/15 transition-all">💼 Tech — LinkedIn</button>
-            <button onClick={() => { setInput("Emmanuel Macron a annoncé la dissolution de l'Assemblée nationale depuis le palais de Versailles. Le président, élu en 2019 avec 72% des voix, a déclaré que la France quitterait l'Union Européenne d'ici 2027. Le CAC 40 a perdu 15% en une seule séance, du jamais vu depuis 1929. La Première ministre Marine Le Pen a présenté sa démission."); setProfile('bfm') }} className="text-xs px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/5 text-amber-400 hover:bg-amber-500/15 transition-all">⚠️ Faux — Test fact-check</button>
+      </header>
+
+      <div className="border-b border-white/5 px-6 py-3.5 bg-gray-950/50 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto flex items-center gap-4">
+          <span className="text-xs text-white/25 shrink-0 uppercase tracking-wider">Profil</span>
+          <div className="flex gap-2 flex-wrap">
+            {PROFILES.map(p => (
+              <button key={p.id} onClick={() => setProfile(p.id)}
+                className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 ${
+                  profile === p.id
+                    ? `${p.color} shadow-lg`
+                    : 'border-white/10 bg-white/[0.03] text-white/35 hover:text-white/60 hover:border-white/20 hover:bg-white/[0.06]'
+                }`}>
+                {p.emoji} {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <main className="max-w-6xl mx-auto px-6 py-10 relative z-10">
+        <div className="mb-10">
+          <label className="block text-sm text-white/40 mb-3 font-medium">Colle ton contenu brut — article, brief, communiqué, notes...</label>
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-orange-500/20 to-red-600/20 rounded-xl opacity-0 group-focus-within:opacity-100 transition-opacity blur-sm" />
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+              placeholder="Le Stade Toulousain s'est imposé 31-24 face à l'Union Bordeaux-Bègles en demi-finale du Top 14..."
+              className="relative w-full h-40 bg-white/[0.03] border border-white/10 rounded-xl px-5 py-4 text-white placeholder-white/15 resize-none focus:outline-none focus:border-orange-500/50 transition-all"
+              disabled={step !== 'idle' && step !== 'done' && step !== 'error'} />
+            <div className="absolute bottom-3 right-3 flex items-center gap-3">
+              <span className="text-xs text-white/25 font-mono">{input.split(/\s+/).filter(Boolean).length} mots</span>
+              <button onClick={run} disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')}
+                className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-semibold text-sm hover:shadow-xl hover:shadow-orange-500/25 hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all duration-200">
+                {step !== 'idle' && step !== 'done' && step !== 'error'
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</>
+                  : <><Send className="w-4 h-4" /> Générer le kit</>}
+              </button>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4 flex-wrap items-center">
+            <span className="text-[11px] text-white/20 uppercase tracking-wider font-medium">Démos</span>
+            <button onClick={() => { setInput("Le Stade Toulousain remporte son 23e titre de champion de France en battant La Rochelle 29-17 en finale du Top 14 au Stade de France. Antoine Dupont, élu homme du match, a inscrit deux essais. 80 000 spectateurs ont assisté à la rencontre. Le capitaine Julien Marchand a soulevé le Bouclier de Brennus sous les ovations."); setProfile('lequipe') }} className="text-[11px] px-3 py-1.5 rounded-full border border-yellow-500/20 bg-yellow-500/5 text-yellow-400/80 hover:bg-yellow-500/15 hover:text-yellow-300 transition-all">🏉 Rugby</button>
+            <button onClick={() => { setInput("Emmanuel Macron a annoncé ce lundi la dissolution de l'Assemblée nationale, trois jours après les élections européennes marquées par une victoire historique du Rassemblement National avec 37% des voix. Le président a déclaré lors d'une allocution télévisée que \"la montée des extrêmes appelle une clarification démocratique\". Les élections législatives anticipées sont fixées aux 22 et 29 juin. La Première ministre Élisabeth Borne a présenté sa démission. Les marchés financiers ont réagi immédiatement, le CAC 40 perdant 2,3% en clôture."); setProfile('bfm') }} className="text-[11px] px-3 py-1.5 rounded-full border border-red-500/20 bg-red-500/5 text-red-400/80 hover:bg-red-500/15 hover:text-red-300 transition-all">🏛️ Politique</button>
+            <button onClick={() => { setInput("Carlos Alcaraz remporte Roland-Garros 2026 en battant Jannik Sinner en finale 6-3, 2-6, 5-7, 6-1, 6-3. L'Espagnol de 23 ans soulève son troisième trophée à Paris devant 15 000 spectateurs sur le court Philippe-Chatrier. Il devient le plus jeune joueur à remporter trois Roland-Garros depuis Rafael Nadal."); setProfile('konbini') }} className="text-[11px] px-3 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/5 text-purple-400/80 hover:bg-purple-500/15 hover:text-purple-300 transition-all">🎾 Tennis</button>
+            <button onClick={() => { setInput("OpenAI annonce un chiffre d'affaires annualisé de 12 milliards de dollars, soit une multiplication par 3 en un an. L'entreprise dirigée par Sam Altman compte désormais 300 millions d'utilisateurs hebdomadaires de ChatGPT. Microsoft reste le principal investisseur avec 13 milliards de dollars injectés depuis 2019."); setProfile('linkedin') }} className="text-[11px] px-3 py-1.5 rounded-full border border-blue-500/20 bg-blue-500/5 text-blue-400/80 hover:bg-blue-500/15 hover:text-blue-300 transition-all">💼 Tech</button>
+            <button onClick={() => { setInput("Emmanuel Macron a annoncé la dissolution de l'Assemblée nationale depuis le palais de Versailles. Le président, élu en 2019 avec 72% des voix, a déclaré que la France quitterait l'Union Européenne d'ici 2027. Le CAC 40 a perdu 15% en une seule séance, du jamais vu depuis 1929. La Première ministre Marine Le Pen a présenté sa démission."); setProfile('bfm') }} className="text-[11px] px-3 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-400/80 hover:bg-amber-500/15 hover:text-amber-300 transition-all">⚠️ Fact-check</button>
           </div>
         </div>
 
@@ -544,19 +599,22 @@ export default function App() {
         {error && <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
 
         {kit && <div>
-          <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
-            <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span><span>•</span>
-            <span>{Object.keys(kit.assets).filter(k => k !== 'image_data').length} formats</span><span>•</span><span>Mode : {useN8N ? 'n8n Pipeline' : MODEL}</span>
-            {kit.fact_check && <><span>•</span><span className="text-teal-400">Fact-check actif</span></>}
-            {kit.quality_score?.score_global !== undefined && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
+          <div className="flex items-center gap-4 mb-8 text-xs text-white/35 font-medium">
+            <span>Généré en <strong className="text-orange-400 font-bold">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span>
+            <span className="text-white/15">•</span>
+            <span>{Object.keys(kit.assets).filter(k => k !== 'image_data').length} formats</span>
+            <span className="text-white/15">•</span>
+            <span>{useN8N ? 'n8n Pipeline' : MODEL}</span>
+            {kit.fact_check && <><span className="text-white/15">•</span><span className="text-teal-400">Fact-check</span></>}
+            {kit.quality_score?.score_global !== undefined && <><span className="text-white/15">•</span><span className="text-purple-400">{kit.quality_score.score_global}/10</span></>}
           </div>
 
           {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && kit.fact_check.verified_facts.filter(f => f.verified).length / kit.fact_check.verified_facts.length < 0.5 && (
-            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/40 flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center shrink-0"><AlertTriangle className="w-5 h-5 text-red-400" /></div>
+            <div className="mb-6 p-5 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-red-500/20 flex items-center justify-center shrink-0"><AlertTriangle className="w-5 h-5 text-red-400" /></div>
               <div>
-                <div className="font-bold text-red-300 mb-1">⚠️ Contenu suspect — Vérification requise</div>
-                <p className="text-sm text-red-200/70">Seul <strong className="text-red-300">{kit.fact_check.verified_facts.filter(f => f.verified).length} fait(s) sur {kit.fact_check.verified_facts.length}</strong> ont pu être vérifiés par nos sources. Ce contenu contient probablement des informations erronées ou invérifiables. <strong>Une vérification manuelle est indispensable avant toute publication.</strong></p>
+                <div className="font-bold text-red-300 mb-1 text-sm">⚠️ Contenu suspect — Vérification requise</div>
+                <p className="text-sm text-red-200/60 leading-relaxed">Seul <strong className="text-red-300">{kit.fact_check.verified_facts.filter(f => f.verified).length} fait(s) sur {kit.fact_check.verified_facts.length}</strong> ont pu être vérifiés par nos sources. Ce contenu contient probablement des informations erronées ou invérifiables. <strong className="text-red-200/80">Une vérification manuelle est indispensable avant toute publication.</strong></p>
               </div>
             </div>
           )}
@@ -564,7 +622,7 @@ export default function App() {
           <RevealWrapper delay={200} trigger={revealTrigger}><EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} /></RevealWrapper>
           {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <RevealWrapper delay={500} trigger={revealTrigger}><FactCheckView factCheck={kit.fact_check} /></RevealWrapper>}
           {kit.quality_score && <RevealWrapper delay={800} trigger={revealTrigger}><QualityScoreView score={kit.quality_score} /></RevealWrapper>}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {kit.assets.article && <RevealWrapper delay={1100} trigger={revealTrigger}><div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} trigger={revealTrigger} /></div></RevealWrapper>}
             {kit.assets.post_x && <RevealWrapper delay={1400} trigger={revealTrigger}><PostView platform="X" content={gpt(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" /></RevealWrapper>}
             {kit.assets.post_instagram && <RevealWrapper delay={1700} trigger={revealTrigger}><PostView platform="Instagram" content={gpt(kit.assets.post_instagram)} icon={Camera} color="bg-pink-600" /></RevealWrapper>}
@@ -573,9 +631,20 @@ export default function App() {
             {kit.assets.seo_meta && <RevealWrapper delay={2600} trigger={revealTrigger}><SeoView seo={kit.assets.seo_meta} /></RevealWrapper>}
             {kit.assets.newsletter_blurb && <RevealWrapper delay={2900} trigger={revealTrigger}><AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}\n\n${safeText(kit.assets.newsletter_blurb.body)}`}><div className="text-amber-300 font-medium mb-2">{safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}</div><p className="whitespace-pre-wrap">{safeText(kit.assets.newsletter_blurb.body)}</p></AssetCard></RevealWrapper>}
           </div>
-          <div className="mt-6"><RevealWrapper delay={3300} trigger={revealTrigger}><TimeSavedBanner kit={kit} /></RevealWrapper></div>
+          <div className="mt-8"><RevealWrapper delay={3300} trigger={revealTrigger}><TimeSavedBanner kit={kit} /></RevealWrapper></div>
         </div>}
+
+        {!kit && step === 'idle' && (
+          <div className="text-center py-20 text-white/15">
+            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            <p className="text-sm">Colle un contenu et sélectionne un profil pour commencer</p>
+          </div>
+        )}
       </main>
+
+      <footer className="border-t border-white/5 py-6 mt-12 text-center">
+        <p className="text-xs text-white/15">Rédaction Augmentée — Hackathon IApreneurs × Hostinger 2026 — <span className="text-orange-400/40">Altiarc</span></p>
+      </footer>
     </div>
   )
 }
