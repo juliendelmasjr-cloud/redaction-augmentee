@@ -116,67 +116,46 @@ function parseJSON(text: string) {
 
 // --- IMAGE SEARCH ---
 
-// Wikipedia FR : vraies images depuis les articles Wikipedia
+// Wikipedia FR : image d'infobox (personne, lieu, organisation)
 async function searchWikipediaImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
     const facts = editorialPlan.key_facts || []
-    // Demande à GPT le nom propre principal pour chercher sur Wikipedia
-    const entityPrompt = await callLLM(
-      `Réponds UNIQUEMENT avec le nom propre principal du sujet (personne, lieu, équipe, événement), tel qu'il apparaîtrait comme titre d'article Wikipedia. 2-4 mots max. Rien d'autre.`,
-      `Sujet : ${angle}\nFaits : ${facts.slice(0, 3).join(' / ')}`,
-      0.1, 30
+    // GPT génère 3 noms d'articles Wikipedia à tester (personne d'abord, puis lieu, puis sujet)
+    const entitiesPrompt = await callLLM(
+      `À partir du sujet ci-dessous, donne exactement 3 titres d'articles Wikipedia FR séparés par des virgules.
+ORDRE : 1) la personne principale, 2) le lieu principal, 3) l'organisation/événement.
+Utilise les noms exacts tels qu'ils apparaissent sur Wikipedia FR.
+Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.
+Exemple : "Antoine Dupont, Stade de France, Stade toulousain"`,
+      `Sujet : ${angle}\nFaits : ${facts.slice(0, 4).join(' / ')}`,
+      0.1, 60
     )
-    const entity = entityPrompt.replace(/['"]/g, '').trim()
-
-    // Étape 1 : Cherche l'article Wikipedia FR
-    const searchUrl = `https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(entity)}&srlimit=1&format=json&origin=*`
-    const searchResp = await fetch(searchUrl)
-    if (!searchResp.ok) return null
-    const searchData = await searchResp.json()
-    const pageId = searchData.query?.search?.[0]?.pageid
-    if (!pageId) return null
-
-    // Étape 2 : Liste toutes les images de cette page Wikipedia
-    const imagesUrl = `https://fr.wikipedia.org/w/api.php?action=query&pageids=${pageId}&prop=images&imlimit=30&format=json&origin=*`
-    const imagesResp = await fetch(imagesUrl)
-    if (!imagesResp.ok) return null
-    const imagesData = await imagesResp.json()
-    const allImages = imagesData.query?.pages?.[pageId]?.images || []
-
-    // Filtre : garder uniquement les JPG/PNG, exclure logos/icônes/blasons/drapeaux/kits
-    const exclude = ['logo', 'icon', 'blason', 'flag', 'map', 'kit', 'crest', 'emblem', 'symbol', 'pictogram', 'jersey', 'maillot']
-    const validTitles = allImages
-      .map((img: { title: string }) => img.title)
-      .filter((title: string) => {
-        const low = title.toLowerCase()
-        const isPhoto = low.endsWith('.jpg') || low.endsWith('.jpeg') || low.endsWith('.png')
-        const isNotExcluded = !exclude.some(ex => low.includes(ex))
-        return isPhoto && isNotExcluded
-      })
-
-    if (validTitles.length === 0) return null
-
-    // Étape 3 : Récupère l'URL de la première image valide
-    const imgTitle = validTitles[0]
-    const infoUrl = `https://fr.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(imgTitle)}&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
-    const infoResp = await fetch(infoUrl)
-    if (!infoResp.ok) return null
-    const infoData = await infoResp.json()
-    const pages = infoData.query?.pages || {}
-    const firstPage = Object.values(pages)[0] as { imageinfo?: Array<{ thumburl?: string; url?: string; descriptionurl?: string; extmetadata?: { Artist?: { value: string } } }> }
-    const info = firstPage?.imageinfo?.[0]
-    if (!info) return null
-
-    const imageUrl = info.thumburl || info.url
-    if (!imageUrl) return null
-    const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '').substring(0, 50) || 'Wikipedia'
-
-    return {
-      url: imageUrl,
-      photographer: artist,
-      src: info.descriptionurl || `https://fr.wikipedia.org/wiki/?curid=${pageId}`
+    const entities = entitiesPrompt.replace(/['"]/g, '').split(',').map(e => e.trim()).filter(Boolean)
+    
+    // Teste chaque entité via l'API pageimages (image d'infobox)
+    for (const entity of entities.slice(0, 3)) {
+      try {
+        const url = `https://fr.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(entity)}&prop=pageimages&format=json&pithumbsize=1200&origin=*`
+        const resp = await fetch(url)
+        if (!resp.ok) continue
+        const data = await resp.json()
+        const pages = data.query?.pages || {}
+        const page = Object.values(pages)[0] as { pageid?: number; pageimage?: string; thumbnail?: { source: string; width: number; height: number } }
+        
+        if (!page?.thumbnail?.source) continue
+        const imgName = (page.pageimage || '').toLowerCase()
+        // Exclure les SVG, logos, blasons, drapeaux
+        if (imgName.endsWith('.svg') || imgName.includes('logo') || imgName.includes('blason') || imgName.includes('flag') || imgName.includes('crest') || imgName.includes('emblem')) continue
+        
+        return {
+          url: page.thumbnail.source,
+          photographer: entity,
+          src: `https://fr.wikipedia.org/wiki/${encodeURIComponent(entity)}`
+        }
+      } catch { continue }
     }
+    return null
   } catch (e) {
     console.warn('Wikipedia image search failed:', e)
     return null
