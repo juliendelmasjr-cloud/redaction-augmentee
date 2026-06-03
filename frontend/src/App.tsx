@@ -116,64 +116,69 @@ function parseJSON(text: string) {
 
 // --- IMAGE SEARCH ---
 
-// Wikimedia Commons : vraies images libres de droits
-async function searchWikimediaCommons(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+// Wikipedia FR : vraies images depuis les articles Wikipedia
+async function searchWikipediaImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
     const facts = editorialPlan.key_facts || []
-    const queryPrompt = await callLLM(
-      `Réponds UNIQUEMENT avec une requête de recherche Wikimedia Commons (2-5 mots, en français ou en anglais selon le sujet). Utilise le nom propre principal du sujet. Rien d'autre.`,
+    // Demande à GPT le nom propre principal pour chercher sur Wikipedia
+    const entityPrompt = await callLLM(
+      `Réponds UNIQUEMENT avec le nom propre principal du sujet (personne, lieu, équipe, événement), tel qu'il apparaîtrait comme titre d'article Wikipedia. 2-4 mots max. Rien d'autre.`,
       `Sujet : ${angle}\nFaits : ${facts.slice(0, 3).join(' / ')}`,
-      0.2, 50
+      0.1, 30
     )
-    const query = queryPrompt.replace(/['"]/g, '').trim()
-    
-    // Recherche dans Wikimedia Commons (namespace 6 = fichiers)
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(query)}&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
-    const resp = await fetch(url)
-    if (!resp.ok) return null
-    const data = await resp.json()
-    if (!data.query?.pages) return null
+    const entity = entityPrompt.replace(/['"]/g, '').trim()
 
-    // Filtre : prend uniquement les JPG/PNG, évite les SVG/logos, préfère les paysages
-    const pages = Object.values(data.query.pages) as Array<{
-      title: string
-      imageinfo?: Array<{
-        thumburl: string
-        thumbwidth: number
-        thumbheight: number
-        descriptionurl: string
-        extmetadata?: { Artist?: { value: string }; ImageDescription?: { value: string } }
-      }>
-    }>
+    // Étape 1 : Cherche l'article Wikipedia FR
+    const searchUrl = `https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(entity)}&srlimit=1&format=json&origin=*`
+    const searchResp = await fetch(searchUrl)
+    if (!searchResp.ok) return null
+    const searchData = await searchResp.json()
+    const pageId = searchData.query?.search?.[0]?.pageid
+    if (!pageId) return null
 
-    const validImages = pages.filter(p => {
-      const title = p.title?.toLowerCase() || ''
-      const isImage = title.endsWith('.jpg') || title.endsWith('.jpeg') || title.endsWith('.png')
-      const isNotLogo = !title.includes('logo') && !title.includes('icon') && !title.includes('blason') && !title.includes('flag') && !title.includes('map')
-      const info = p.imageinfo?.[0]
-      const isLargeEnough = info && info.thumbwidth >= 400
-      return isImage && isNotLogo && isLargeEnough
-    })
+    // Étape 2 : Liste toutes les images de cette page Wikipedia
+    const imagesUrl = `https://fr.wikipedia.org/w/api.php?action=query&pageids=${pageId}&prop=images&imlimit=30&format=json&origin=*`
+    const imagesResp = await fetch(imagesUrl)
+    if (!imagesResp.ok) return null
+    const imagesData = await imagesResp.json()
+    const allImages = imagesData.query?.pages?.[pageId]?.images || []
 
-    if (validImages.length === 0) return null
+    // Filtre : garder uniquement les JPG/PNG, exclure logos/icônes/blasons/drapeaux/kits
+    const exclude = ['logo', 'icon', 'blason', 'flag', 'map', 'kit', 'crest', 'emblem', 'symbol', 'pictogram', 'jersey', 'maillot']
+    const validTitles = allImages
+      .map((img: { title: string }) => img.title)
+      .filter((title: string) => {
+        const low = title.toLowerCase()
+        const isPhoto = low.endsWith('.jpg') || low.endsWith('.jpeg') || low.endsWith('.png')
+        const isNotExcluded = !exclude.some(ex => low.includes(ex))
+        return isPhoto && isNotExcluded
+      })
 
-    // Préfère les images en paysage (ratio > 1.2)
-    const landscape = validImages.find(p => {
-      const info = p.imageinfo![0]
-      return info.thumbwidth / info.thumbheight > 1.2
-    }) || validImages[0]
+    if (validTitles.length === 0) return null
 
-    const info = landscape.imageinfo![0]
-    const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '') || 'Wikimedia Commons'
-    
+    // Étape 3 : Récupère l'URL de la première image valide
+    const imgTitle = validTitles[0]
+    const infoUrl = `https://fr.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(imgTitle)}&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
+    const infoResp = await fetch(infoUrl)
+    if (!infoResp.ok) return null
+    const infoData = await infoResp.json()
+    const pages = infoData.query?.pages || {}
+    const firstPage = Object.values(pages)[0] as { imageinfo?: Array<{ thumburl?: string; url?: string; descriptionurl?: string; extmetadata?: { Artist?: { value: string } } }> }
+    const info = firstPage?.imageinfo?.[0]
+    if (!info) return null
+
+    const imageUrl = info.thumburl || info.url
+    if (!imageUrl) return null
+    const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '').substring(0, 50) || 'Wikipedia'
+
     return {
-      url: info.thumburl,
-      photographer: artist.substring(0, 50),
-      src: info.descriptionurl
+      url: imageUrl,
+      photographer: artist,
+      src: info.descriptionurl || `https://fr.wikipedia.org/wiki/?curid=${pageId}`
     }
   } catch (e) {
-    console.warn('Wikimedia search failed:', e)
+    console.warn('Wikipedia image search failed:', e)
     return null
   }
 }
@@ -214,9 +219,9 @@ async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<
   } catch { return null }
 }
 
-// Orchestrateur : Wikimedia → Pexels → Pollinations
+// Orchestrateur : Wikipedia → Pexels → Pollinations
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
-  const wiki = await searchWikimediaCommons(editorialPlan)
+  const wiki = await searchWikipediaImage(editorialPlan)
   if (wiki) return wiki
   const pexels = await searchPexels(editorialPlan)
   if (pexels) return pexels
@@ -365,7 +370,7 @@ function CopyButton({ text }: { text: string }) {
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
   const isAI = imageData?.photographer?.includes('IA') || imageData?.photographer?.includes('Flux')
-  const sourceLabel = isAI ? 'Pollinations × Flux' : imageData?.src?.includes('wikimedia') ? 'Wikimedia Commons' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
+  const sourceLabel = isAI ? 'Pollinations × Flux' : imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
   return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
     <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
     {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-white/5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>{isAI ? '🤖 Image IA (Flux)' : `📷 ${imageData.photographer}`}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
