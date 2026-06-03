@@ -181,20 +181,19 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Pollinations Flux (IA)
+// Fallback Pollinations Flux (IA) — sans appel LLM pour fiabilité maximale
 async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    const facts = editorialPlan.key_facts || []
-    const promptQuery = await callLLM(
-      `Réponds UNIQUEMENT avec un prompt image en anglais (15-20 mots), style photo journalistique réaliste. Rien d'autre.`,
-      `Sujet : ${angle}\nFaits : ${facts.slice(0, 3).join(' / ')}`,
-      0.4, 80
-    )
-    const clean = promptQuery.replace(/['"]/g, '').trim()
-    const encoded = encodeURIComponent(`${clean}, professional press photography, AFP style, documentary realism, natural lighting, sharp focus, no text no watermark no logo`)
+    const facts = (editorialPlan.key_facts || []).slice(0, 2).join(', ')
+    const subject = `${angle} ${facts}`.substring(0, 100)
+    const encoded = encodeURIComponent(`${subject}, professional press photography, AFP style, documentary realism, natural lighting, sharp focus, no text no watermark no logo`)
     const params = new URLSearchParams({ width: '1200', height: '675', model: 'flux', nologo: 'true', enhance: 'true', seed: String(Date.now() % 1000000) })
-    return { url: `https://image.pollinations.ai/prompt/${encoded}?${params.toString()}`, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
+    const url = `https://image.pollinations.ai/prompt/${encoded}?${params.toString()}`
+    // Vérifie que l'URL répond avant de la retourner
+    const testResp = await fetch(url, { method: 'HEAD' }).catch(() => null)
+    if (!testResp || !testResp.ok) return null
+    return { url, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
   } catch { return null }
 }
 
@@ -447,7 +446,7 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
       <header className="border-b border-white/10 px-6 py-4"><div className="max-w-6xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div><div><h1 className="text-xl font-bold">Rédaction Augmentée</h1><p className="text-xs text-white/40">by Altiarc — Pipeline IA éditorial multi-format</p></div></div>
-        <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.0 — Hackathon</span></div>
+        <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.1 — Hackathon</span></div>
       </div></header>
 
       <div className="border-b border-white/5 px-6 py-3"><div className="max-w-6xl mx-auto flex items-center gap-3"><span className="text-xs text-white/30 shrink-0">Profil éditorial :</span><div className="flex gap-2 flex-wrap">{PROFILES.map(p => <button key={p.id} onClick={() => setProfile(p.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${profile === p.id ? p.color : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'}`}>{p.emoji} {p.label}</button>)}</div></div></div>
@@ -457,7 +456,16 @@ export default function App() {
           <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="Le Stade Toulousain s'est imposé 31-24 face à l'Union Bordeaux-Bègles en demi-finale du Top 14..." className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-white/20 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all" disabled={step !== 'idle' && step !== 'done' && step !== 'error'} />
           <div className="absolute bottom-3 right-3 flex items-center gap-3"><span className="text-xs text-white/30">{input.split(/\s+/).filter(Boolean).length} mots</span>
             <button onClick={run} disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-medium text-sm hover:shadow-lg hover:shadow-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all">{step !== 'idle' && step !== 'done' && step !== 'error' ? <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</> : <><Send className="w-4 h-4" /> Générer le kit</>}</button></div>
-        </div></div>
+        </div>
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <span className="text-xs text-white/30 self-center">Démos :</span>
+            <button onClick={() => { setInput("Le Stade Toulousain remporte son 23e titre de champion de France en battant La Rochelle 29-17 en finale du Top 14 au Stade de France. Antoine Dupont, élu homme du match, a inscrit deux essais. 80 000 spectateurs ont assisté à la rencontre. Le capitaine Julien Marchand a soulevé le Bouclier de Brennus sous les ovations."); setProfile('lequipe') }} className="text-xs px-3 py-1.5 rounded-full border border-yellow-500/30 bg-yellow-500/5 text-yellow-400 hover:bg-yellow-500/15 transition-all">🏉 Rugby — L'Équipe</button>
+            <button onClick={() => { setInput("Emmanuel Macron a annoncé ce lundi la dissolution de l'Assemblée nationale, trois jours après les élections européennes marquées par une victoire historique du Rassemblement National avec 37% des voix. Le président a déclaré lors d'une allocution télévisée que \"la montée des extrêmes appelle une clarification démocratique\". Les élections législatives anticipées sont fixées aux 22 et 29 juin. La Première ministre Élisabeth Borne a présenté sa démission. Les marchés financiers ont réagi immédiatement, le CAC 40 perdant 2,3% en clôture."); setProfile('bfm') }} className="text-xs px-3 py-1.5 rounded-full border border-red-500/30 bg-red-500/5 text-red-400 hover:bg-red-500/15 transition-all">🏛️ Politique — BFM</button>
+            <button onClick={() => { setInput("Carlos Alcaraz remporte Roland-Garros 2026 en battant Jannik Sinner en finale 6-3, 2-6, 5-7, 6-1, 6-3. L'Espagnol de 23 ans soulève son troisième trophée à Paris devant 15 000 spectateurs sur le court Philippe-Chatrier. Il devient le plus jeune joueur à remporter trois Roland-Garros depuis Rafael Nadal."); setProfile('konbini') }} className="text-xs px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/5 text-purple-400 hover:bg-purple-500/15 transition-all">🎾 Tennis — Konbini</button>
+            <button onClick={() => { setInput("OpenAI annonce un chiffre d'affaires annualisé de 12 milliards de dollars, soit une multiplication par 3 en un an. L'entreprise dirigée par Sam Altman compte désormais 300 millions d'utilisateurs hebdomadaires de ChatGPT. Microsoft reste le principal investisseur avec 13 milliards de dollars injectés depuis 2019."); setProfile('linkedin') }} className="text-xs px-3 py-1.5 rounded-full border border-blue-500/30 bg-blue-500/5 text-blue-400 hover:bg-blue-500/15 transition-all">💼 Tech — LinkedIn</button>
+            <button onClick={() => { setInput("Emmanuel Macron a annoncé la dissolution de l'Assemblée nationale depuis le palais de Versailles. Le président, élu en 2019 avec 72% des voix, a déclaré que la France quitterait l'Union Européenne d'ici 2027. Le CAC 40 a perdu 15% en une seule séance, du jamais vu depuis 1929. La Première ministre Marine Le Pen a présenté sa démission."); setProfile('bfm') }} className="text-xs px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/5 text-amber-400 hover:bg-amber-500/15 transition-all">⚠️ Faux — Test fact-check</button>
+          </div>
+        </div>
 
         {step !== 'idle' && <StepIndicator step={step} elapsed={elapsed} />}
         {error && <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
