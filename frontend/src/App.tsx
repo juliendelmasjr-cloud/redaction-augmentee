@@ -477,6 +477,24 @@ export default function App() {
             {kit.fact_check && <><span>•</span><span className="text-teal-400">Fact-check actif</span></>}
             {kit.quality_score?.score_global !== undefined && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
           </div>
+
+          {/* WARNING si fact-check majoritairement négatif */}
+          {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && (() => {
+            const total = kit.fact_check!.verified_facts.length
+            const verified = kit.fact_check!.verified_facts.filter(f => f.verified).length
+            const ratio = verified / total
+            if (ratio < 0.5) return (
+              <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/40 flex items-start gap-3 animate-pulse-once">
+                <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center shrink-0"><AlertTriangle className="w-5 h-5 text-red-400" /></div>
+                <div>
+                  <div className="font-bold text-red-300 mb-1">⚠️ Contenu suspect — Vérification requise</div>
+                  <p className="text-sm text-red-200/70">Seul{verified > 1 ? 's' : ''} <strong className="text-red-300">{verified} fait{verified > 1 ? 's' : ''} sur {total}</strong> {verified > 1 ? 'ont' : 'a'} pu être vérifié{verified > 1 ? 's' : ''} par nos sources. Ce contenu contient probablement des informations erronées ou invérifiables. <strong>Une vérification manuelle est indispensable avant toute publication.</strong></p>
+                </div>
+              </div>
+            )
+            return null
+          })()}
+          </div>
           <RevealWrapper delay={200} trigger={revealTrigger}><EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} /></RevealWrapper>
           {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <RevealWrapper delay={500} trigger={revealTrigger}><FactCheckView factCheck={kit.fact_check} /></RevealWrapper>}
           {kit.quality_score && <RevealWrapper delay={800} trigger={revealTrigger}><QualityScoreView score={kit.quality_score} /></RevealWrapper>}
