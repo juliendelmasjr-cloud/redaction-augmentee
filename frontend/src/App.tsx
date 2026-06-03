@@ -1,74 +1,22 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Send,
-  Loader2,
-  FileText,
-  MessageCircle,
-  Camera,
-  Briefcase,
-  Mic,
-  Search,
-  ChevronDown,
-  ChevronUp,
-  Sparkles,
-  Globe2,
-  Newspaper,
-  Check,
-  Copy,
-  Play,
-  Square,
-  ShieldCheck,
-  ShieldAlert,
-  ExternalLink,
-  Star,
-  TrendingUp,
-  AlertTriangle,
-  Zap,
-  Clock,
-  BarChart3,
-  HelpCircle,
-  X,
+  Send, Loader2, FileText, MessageCircle, Camera, Briefcase, Mic, Search,
+  ChevronDown, ChevronUp, Sparkles, Globe2, Newspaper, Check, Copy, Play,
+  Square, ShieldCheck, ShieldAlert, ExternalLink, Star, TrendingUp,
+  AlertTriangle, Zap, Clock, BarChart3, HelpCircle, X,
 } from 'lucide-react';
 
 // --- TYPES ---
 interface EditorialPlan {
-  content_type?: string
-  title?: string
-  headline?: string
-  source_type?: string
-  angle?: string
-  tone?: string
-  hook_direction?: string
-  key_facts?: string[]
+  content_type?: string; title?: string; headline?: string; source_type?: string
+  angle?: string; tone?: string; hook_direction?: string; key_facts?: string[]
   key_points?: Array<{ point?: string; event?: string; details?: string }>
-  target_formats?: string[]
-  formats?: string[]
-  editorial_notes?: string | string[]
-  summary?: string
-  introduction?: string
-  target_audience?: string
+  target_formats?: string[]; formats?: string[]; editorial_notes?: string | string[]
+  summary?: string; introduction?: string; target_audience?: string
 }
-
-interface VerifiedFact {
-  fact: string
-  verified: boolean
-  source: string | null
-  source_title: string | null
-}
-
-interface FactCheck {
-  verified_facts: VerifiedFact[]
-  sources: Array<{ title: string; url: string }>
-  checked_at: string
-}
-
-interface QualityScore {
-  scores: Record<string, number>
-  score_global: number
-  points_forts: string[]
-  points_amelioration: string[]
-}
-
+interface VerifiedFact { fact: string; verified: boolean; source: string | null; source_title: string | null }
+interface FactCheck { verified_facts: VerifiedFact[]; sources: Array<{ title: string; url: string }>; checked_at: string }
+interface QualityScore { scores: Record<string, number>; score_global: number; points_forts: string[]; points_amelioration: string[] }
 interface Assets {
   article?: { title: string; chapo?: string; body?: string; chute?: string; content?: string; author?: string; publish_date?: string }
   post_x?: { text: string; hashtags?: string[] } | string
@@ -79,16 +27,7 @@ interface Assets {
   seo_meta?: { title_tag?: string; title?: string; meta_description?: string; description?: string; keywords: string[] | string }
   image_data?: { url: string; photographer: string; src: string }
 }
-
-interface GeneratedKit {
-  editorial_plan: EditorialPlan
-  assets: Assets
-  generated_at: string
-  generation_time_ms: number
-  fact_check?: FactCheck
-  quality_score?: QualityScore
-}
-
+interface GeneratedKit { editorial_plan: EditorialPlan; assets: Assets; generated_at: string; generation_time_ms: number; fact_check?: FactCheck; quality_score?: QualityScore }
 type PipelineStep = 'idle' | 'ingesting' | 'routing' | 'generating' | 'done' | 'error'
 type ProfileId = 'bfm' | 'lequipe' | 'konbini' | 'linkedin'
 
@@ -99,14 +38,11 @@ const MODEL = import.meta.env.VITE_MODEL || 'gpt-4o-mini'
 const N8N_WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL || ''
 const DEFAULT_USE_N8N = import.meta.env.VITE_USE_N8N === 'true'
 const PEXELS_KEY = import.meta.env.VITE_PEXELS_API_KEY || ''
-const GOOGLE_CSE_KEY = import.meta.env.VITE_GOOGLE_CSE_API_KEY || ''
-const GOOGLE_CSE_ID = import.meta.env.VITE_GOOGLE_CSE_ID || ''
 
-// --- SOCLE JOURNALISTIQUE COMMUN ---
+// --- SOCLE JOURNALISTIQUE COMMUN (Perplexity) ---
 const JOURNALISTIC_BASE = `Tu es un journaliste professionnel expérimenté. Tu produis des contenus éditoriaux fiables, structurés et engageants à partir d'un document source.
 
-OBJECTIF :
-Transformer une information brute en contenu journalistique de haute qualité, prêt à être publié.
+OBJECTIF : Transformer une information brute en contenu journalistique de haute qualité, prêt à être publié.
 
 RÈGLES FONDAMENTALES DU JOURNALISME :
 - Prioriser l'information essentielle (angle clair dès le début).
@@ -123,69 +59,21 @@ STRUCTURE ARTICLE ATTENDUE :
 3. Corps : paragraphe 1 = info principale, paragraphe 2 = contexte/background, paragraphes 3+ = détails, implications, chiffres, citations
 4. Conclusion ouverte (impact, suite possible, enjeux)
 
-STYLE GÉNÉRAL :
-- Phrases fluides, variées, naturelles. Ton professionnel, jamais robotique.
-- Pas de jargon inutile, pas de répétition.
+STYLE GÉNÉRAL : Phrases fluides, variées, naturelles. Ton professionnel, jamais robotique. Pas de jargon inutile, pas de répétition.
 
-INTERDICTIONS :
-- Ne pas inventer de faits ou citations.
-- Ne pas surinterpréter les informations.
-- Ne pas transformer en publicité.
-- Ne pas utiliser de formules vagues ("révolutionnaire", "incroyable") sans justification.
+INTERDICTIONS : Ne pas inventer de faits ou citations. Ne pas surinterpréter. Ne pas transformer en publicité. Ne pas utiliser de formules vagues sans justification.
 
-AMÉLIORATION ÉDITORIALE :
-- Si l'information est pauvre, enrichir avec du contexte général pertinent.
-- Reformuler pour plus de clarté et d'impact.
-- Ajouter des angles journalistiques implicites (enjeux, conséquences, acteurs).
+AMÉLIORATION ÉDITORIALE : Si l'information est pauvre, enrichir avec du contexte général pertinent. Reformuler pour plus de clarté et d'impact. Ajouter des angles journalistiques implicites (enjeux, conséquences, acteurs).
 
 INSTRUCTION CLÉ : Avant de rédiger, résume en une phrase l'angle de l'article. Puis rédige en respectant cet angle.`
 
-// --- MODULES DE STYLE ---
 const STYLE_MODULES: Record<ProfileId, string> = {
-  bfm: `STYLE ÉDITORIAL : BFMTV
-- Ton direct, rapide, efficace. Priorité à l'immédiateté et à l'impact.
-- Phrases courtes à moyennes. Angle centré sur l'actualité et l'urgence.
-SPÉCIFICITÉS :
-- Aller droit au fait dès le titre et le chapô.
-- Mettre en avant les éléments nouveaux ou marquants.
-- Utiliser des formulations dynamiques ("ce que l'on sait", "ce qu'il faut retenir").
-- Structurer en blocs courts facilement lisibles. Ajouter intertitres si nécessaire.
-- Mettre en avant chiffres et faits clés.
-TON : Neutre mais rythmé. Léger sensationnalisme acceptable mais sans exagération.`,
-
-  lequipe: `STYLE ÉDITORIAL : L'ÉQUIPE
-- Ton expert, précis, passionné mais maîtrisé. Vocabulaire spécifique au sport concerné.
-- Analyse + récit.
-SPÉCIFICITÉS :
-- Décrire les performances, actions ou enjeux sportifs.
-- Intégrer des éléments tactiques ou techniques si pertinents.
-- Donner du contexte (classement, historique, forme des équipes/joueurs).
-ANGLE :
-- Mettre en avant les acteurs (joueurs, entraîneurs).
-- Raconter une histoire sportive (tension, performance, retournement).
-TON : Crédible, analytique, légèrement narratif. Jamais promotionnel.`,
-
-  konbini: `STYLE ÉDITORIAL : KONBINI
-- Ton moderne, accessible, incarné. Angle sociétal, culturel ou générationnel.
-SPÉCIFICITÉS :
-- Accroche forte dès le début. Simplification intelligente de l'information.
-- Mise en récit (storytelling). Possibilité d'adresse indirecte au lecteur.
-ANGLE :
-- Pourquoi ça concerne les gens. Ce que ça dit de la société / d'une tendance.
-STYLE : Phrases courtes à moyennes. Rythme dynamique. Ton conversationnel mais maîtrisé.
-INTERDIT : Vulgarité gratuite. Superficialité totale (toujours garder du fond).`,
-
-  linkedin: `STYLE ÉDITORIAL : LINKEDIN PROFESSIONNEL
-- Ton professionnel, crédible, orienté valeur. Objectif : informer + apporter un insight.
-SPÉCIFICITÉS :
-- Accroche orientée problématique ou constat. Mise en perspective business / marché.
-- Ajout d'enseignements ou implications.
-STRUCTURE : Hook (1-2 phrases impactantes) + Développement clair + Analyse ou leçon à tirer.
-ANGLE : Ce que cela change. Pourquoi c'est important pour les professionnels.
-TON : Posé, expert, accessible. Pas corporate creux. Pas de jargon inutile.`
+  bfm: `STYLE ÉDITORIAL : BFMTV — Ton direct, rapide, efficace. Priorité à l'immédiateté et à l'impact. Phrases courtes à moyennes. Angle centré sur l'actualité et l'urgence. Aller droit au fait dès le titre et le chapô. Mettre en avant les éléments nouveaux ou marquants. Utiliser des formulations dynamiques ("ce que l'on sait", "ce qu'il faut retenir"). Structurer en blocs courts. Ajouter intertitres. Mettre en avant chiffres et faits clés. Ton neutre mais rythmé.`,
+  lequipe: `STYLE ÉDITORIAL : L'ÉQUIPE — Ton expert, précis, passionné mais maîtrisé. Vocabulaire spécifique au sport. Analyse + récit. Décrire les performances, actions ou enjeux sportifs. Intégrer des éléments tactiques ou techniques. Donner du contexte (classement, historique, forme). Mettre en avant les acteurs (joueurs, entraîneurs). Raconter une histoire sportive (tension, performance, retournement). Ton crédible, analytique, légèrement narratif.`,
+  konbini: `STYLE ÉDITORIAL : KONBINI — Ton moderne, accessible, incarné. Angle sociétal, culturel ou générationnel. Accroche forte dès le début. Simplification intelligente. Mise en récit (storytelling). Adresse indirecte au lecteur. Pourquoi ça concerne les gens. Ce que ça dit de la société. Phrases courtes à moyennes. Rythme dynamique. Ton conversationnel mais maîtrisé. Pas de vulgarité gratuite, toujours garder du fond.`,
+  linkedin: `STYLE ÉDITORIAL : LINKEDIN PRO — Ton professionnel, crédible, orienté valeur. Informer + apporter un insight. Accroche orientée problématique ou constat. Mise en perspective business/marché. Ajout d'enseignements ou implications. Hook (1-2 phrases impactantes) + Développement clair + Analyse ou leçon à tirer. Ce que cela change. Pourquoi c'est important pour les professionnels. Ton posé, expert, accessible. Pas corporate creux.`
 }
 
-// --- FORMAT OUTPUT ---
 const OUTPUT_FORMAT = `
 FORMATS À PRODUIRE (tous en JSON dans un objet "assets") :
 - article : { "title", "chapo", "body" (minimum 500 mots, structuré en paragraphes), "chute", "author": "Rédaction [PROFIL]", "publish_date" }
@@ -195,61 +83,26 @@ FORMATS À PRODUIRE (tous en JSON dans un objet "assets") :
 - newsletter_blurb : { "subject" (objet email accrocheur), "body" (5 lignes max) }
 - audio_flash : "script à lire à voix haute, 30 secondes max, ton adapté au profil"
 - seo_meta : { "title" (60 car max), "description" (155 car max), "keywords": [] }
-
 RÈGLE ABSOLUE : Tous les champs texte doivent être des chaînes de caractères simples, jamais des objets imbriqués.
 Réponds UNIQUEMENT en JSON avec un objet "assets".`
 
 // --- PROFILES ---
-interface EditorialProfile {
-  id: ProfileId
-  label: string
-  emoji: string
-  color: string
-  generatorPrompt: string
-}
-
+interface EditorialProfile { id: ProfileId; label: string; emoji: string; color: string; generatorPrompt: string }
 const PROFILES: EditorialProfile[] = [
-  {
-    id: 'bfm',
-    label: 'BFM TV',
-    emoji: '🔴',
-    color: 'border-red-500/50 bg-red-500/10 text-red-400',
-    generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.bfm}\n\n${OUTPUT_FORMAT}`
-  },
-  {
-    id: 'lequipe',
-    label: "L'Équipe",
-    emoji: '🟡',
-    color: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400',
-    generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.lequipe}\n\n${OUTPUT_FORMAT}`
-  },
-  {
-    id: 'konbini',
-    label: 'Konbini',
-    emoji: '🟣',
-    color: 'border-purple-500/50 bg-purple-500/10 text-purple-400',
-    generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.konbini}\n\n${OUTPUT_FORMAT}`
-  },
-  {
-    id: 'linkedin',
-    label: 'LinkedIn Pro',
-    emoji: '🔵',
-    color: 'border-blue-500/50 bg-blue-500/10 text-blue-400',
-    generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.linkedin}\n\n${OUTPUT_FORMAT}`
-  }
+  { id: 'bfm', label: 'BFM TV', emoji: '🔴', color: 'border-red-500/50 bg-red-500/10 text-red-400', generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.bfm}\n\n${OUTPUT_FORMAT}` },
+  { id: 'lequipe', label: "L'Équipe", emoji: '🟡', color: 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400', generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.lequipe}\n\n${OUTPUT_FORMAT}` },
+  { id: 'konbini', label: 'Konbini', emoji: '🟣', color: 'border-purple-500/50 bg-purple-500/10 text-purple-400', generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.konbini}\n\n${OUTPUT_FORMAT}` },
+  { id: 'linkedin', label: 'LinkedIn Pro', emoji: '🔵', color: 'border-blue-500/50 bg-blue-500/10 text-blue-400', generatorPrompt: `${JOURNALISTIC_BASE}\n\n${STYLE_MODULES.linkedin}\n\n${OUTPUT_FORMAT}` }
 ]
 
-// --- PROMPTS ---
 const ROUTER_PROMPT = `Tu es le rédacteur en chef d'une rédaction numérique. Tu reçois un contenu brut et produis un editorial_plan en JSON.
-Champs requis :
-- content_type, angle, tone, hook_direction, key_facts (5-8), target_formats, editorial_notes, summary, target_audience
+Champs requis : content_type, angle, tone, hook_direction, key_facts (5-8), target_formats, editorial_notes, summary, target_audience
 Réponds UNIQUEMENT en JSON pur.`
 
 // --- API ---
 async function callLLM(system: string, user: string, temp = 0.3, maxTokens = 2000): Promise<string> {
   const resp = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
     body: JSON.stringify({ model: MODEL, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: temp, max_tokens: maxTokens })
   })
   if (!resp.ok) throw new Error(`API Error ${resp.status}`)
@@ -263,38 +116,64 @@ function parseJSON(text: string) {
 
 // --- IMAGE SEARCH ---
 
-// Google Custom Search — vraies images du web
-async function searchGoogleImages(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
-  if (!GOOGLE_CSE_KEY || !GOOGLE_CSE_ID) return null
+// Wikimedia Commons : vraies images libres de droits
+async function searchWikimediaCommons(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
     const facts = editorialPlan.key_facts || []
-    // Génère une requête image optimisée
     const queryPrompt = await callLLM(
-      'Réponds UNIQUEMENT avec une requête de recherche image Google en français (3-6 mots), concrète et spécifique. Pas de description abstraite. Rien d\'autre.',
+      `Réponds UNIQUEMENT avec une requête de recherche Wikimedia Commons (2-5 mots, en français ou en anglais selon le sujet). Utilise le nom propre principal du sujet. Rien d'autre.`,
       `Sujet : ${angle}\nFaits : ${facts.slice(0, 3).join(' / ')}`,
       0.2, 50
     )
     const query = queryPrompt.replace(/['"]/g, '').trim()
-    const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_CSE_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgSize=large&imgType=photo&safe=active`
+    
+    // Recherche dans Wikimedia Commons (namespace 6 = fichiers)
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(query)}&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
     const resp = await fetch(url)
-    if (!resp.ok) {
-      console.warn('Google CSE error:', resp.status)
-      return null
-    }
+    if (!resp.ok) return null
     const data = await resp.json()
-    if (!data.items?.length) return null
-    // Prend la première image avec une taille raisonnable
-    const item = data.items.find((i: { image?: { width: number; height: number } }) =>
-      i.image && i.image.width >= 600 && i.image.height >= 300
-    ) || data.items[0]
+    if (!data.query?.pages) return null
+
+    // Filtre : prend uniquement les JPG/PNG, évite les SVG/logos, préfère les paysages
+    const pages = Object.values(data.query.pages) as Array<{
+      title: string
+      imageinfo?: Array<{
+        thumburl: string
+        thumbwidth: number
+        thumbheight: number
+        descriptionurl: string
+        extmetadata?: { Artist?: { value: string }; ImageDescription?: { value: string } }
+      }>
+    }>
+
+    const validImages = pages.filter(p => {
+      const title = p.title?.toLowerCase() || ''
+      const isImage = title.endsWith('.jpg') || title.endsWith('.jpeg') || title.endsWith('.png')
+      const isNotLogo = !title.includes('logo') && !title.includes('icon') && !title.includes('blason') && !title.includes('flag') && !title.includes('map')
+      const info = p.imageinfo?.[0]
+      const isLargeEnough = info && info.thumbwidth >= 400
+      return isImage && isNotLogo && isLargeEnough
+    })
+
+    if (validImages.length === 0) return null
+
+    // Préfère les images en paysage (ratio > 1.2)
+    const landscape = validImages.find(p => {
+      const info = p.imageinfo![0]
+      return info.thumbwidth / info.thumbheight > 1.2
+    }) || validImages[0]
+
+    const info = landscape.imageinfo![0]
+    const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '') || 'Wikimedia Commons'
+    
     return {
-      url: item.link,
-      photographer: item.displayLink || 'Source web',
-      src: item.image?.contextLink || item.link
+      url: info.thumburl,
+      photographer: artist.substring(0, 50),
+      src: info.descriptionurl
     }
   } catch (e) {
-    console.warn('Google CSE failed:', e)
+    console.warn('Wikimedia search failed:', e)
     return null
   }
 }
@@ -318,19 +197,37 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Orchestrateur : Google CSE → Pexels
+// Fallback Pollinations Flux (IA)
+async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  try {
+    const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
+    const facts = editorialPlan.key_facts || []
+    const promptQuery = await callLLM(
+      `Réponds UNIQUEMENT avec un prompt image en anglais (15-20 mots), style photo journalistique réaliste. Rien d'autre.`,
+      `Sujet : ${angle}\nFaits : ${facts.slice(0, 3).join(' / ')}`,
+      0.4, 80
+    )
+    const clean = promptQuery.replace(/['"]/g, '').trim()
+    const encoded = encodeURIComponent(`${clean}, professional press photography, AFP style, documentary realism, natural lighting, sharp focus, no text no watermark no logo`)
+    const params = new URLSearchParams({ width: '1200', height: '675', model: 'flux', nologo: 'true', enhance: 'true', seed: String(Date.now() % 1000000) })
+    return { url: `https://image.pollinations.ai/prompt/${encoded}?${params.toString()}`, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
+  } catch { return null }
+}
+
+// Orchestrateur : Wikimedia → Pexels → Pollinations
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
-  const google = await searchGoogleImages(editorialPlan)
-  if (google) return google
-  return await searchPexels(editorialPlan)
+  const wiki = await searchWikimediaCommons(editorialPlan)
+  if (wiki) return wiki
+  const pexels = await searchPexels(editorialPlan)
+  if (pexels) return pexels
+  return await generateImagePollinations(editorialPlan)
 }
 
 async function generateAudio(script: string): Promise<string | null> {
   if (!API_KEY) return null
   try {
     const resp = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
       body: JSON.stringify({ model: 'tts-1', input: script, voice: 'onyx', response_format: 'mp3' })
     })
     if (!resp.ok) return null
@@ -340,7 +237,6 @@ async function generateAudio(script: string): Promise<string | null> {
 }
 
 // --- HELPERS ---
-
 function safeText(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'string') return value
@@ -359,35 +255,15 @@ function safeText(value: unknown): string {
 
 function normalizeKit(raw: unknown): GeneratedKit & { generation_time_ms: number } {
   let data: unknown = Array.isArray(raw) ? raw[0] : raw
-  if (data && typeof data === 'object' && 'kit' in (data as Record<string, unknown>)) {
-    data = (data as Record<string, unknown>).kit
-  }
+  if (data && typeof data === 'object' && 'kit' in (data as Record<string, unknown>)) data = (data as Record<string, unknown>).kit
   const obj = data as Record<string, unknown>
   let ep = (obj.editorial_plan || {}) as Record<string, unknown>
-  if (ep && typeof ep === 'object' && 'editorial_plan' in ep) {
-    ep = ep.editorial_plan as Record<string, unknown>
-  }
-  return {
-    editorial_plan: ep as unknown as EditorialPlan,
-    assets: (obj.assets || {}) as Assets,
-    generated_at: (obj.generated_at as string) || new Date().toISOString(),
-    generation_time_ms: 0,
-    fact_check: obj.fact_check as FactCheck | undefined,
-    quality_score: obj.quality_score as QualityScore | undefined,
-  }
+  if (ep && typeof ep === 'object' && 'editorial_plan' in ep) ep = ep.editorial_plan as Record<string, unknown>
+  return { editorial_plan: ep as unknown as EditorialPlan, assets: (obj.assets || {}) as Assets, generated_at: (obj.generated_at as string) || new Date().toISOString(), generation_time_ms: 0, fact_check: obj.fact_check as FactCheck | undefined, quality_score: obj.quality_score as QualityScore | undefined }
 }
 
-function getAudioScript(audio: Assets['audio_flash']): string {
-  if (typeof audio === 'string') return audio
-  if (audio && typeof audio === 'object') return safeText(audio.script)
-  return ''
-}
-
-function getAudioDuration(audio: Assets['audio_flash']): number {
-  if (typeof audio === 'object' && audio && 'duration_target_seconds' in audio) return audio.duration_target_seconds
-  return 30
-}
-
+function getAudioScript(audio: Assets['audio_flash']): string { return typeof audio === 'string' ? audio : audio ? safeText(audio.script) : '' }
+function getAudioDuration(audio: Assets['audio_flash']): number { return typeof audio === 'object' && audio && 'duration_target_seconds' in audio ? audio.duration_target_seconds : 30 }
 function getKeyFactsList(plan: EditorialPlan): string[] {
   if (plan.key_facts?.length) return plan.key_facts.map(safeText)
   if (plan.key_points?.length) return plan.key_points.map(kp => safeText(kp.point || kp.event || kp.details || ''))
@@ -395,11 +271,9 @@ function getKeyFactsList(plan: EditorialPlan): string[] {
 }
 
 function countTotalWords(assets: Assets): number {
-  let total = 0
   const cw = (t: string | undefined | null) => t ? t.split(/\s+/).filter(Boolean).length : 0
-  if (assets.article) {
-    total += cw(safeText(assets.article.title)) + cw(safeText(assets.article.chapo)) + cw(safeText(assets.article.body || assets.article.content)) + cw(safeText(assets.article.chute))
-  }
+  let total = 0
+  if (assets.article) total += cw(safeText(assets.article.title)) + cw(safeText(assets.article.chapo)) + cw(safeText(assets.article.body || assets.article.content)) + cw(safeText(assets.article.chute))
   if (assets.post_x) total += cw(safeText(assets.post_x))
   if (assets.post_instagram) total += cw(safeText(assets.post_instagram))
   if (assets.post_linkedin) total += cw(safeText(assets.post_linkedin))
@@ -409,10 +283,9 @@ function countTotalWords(assets: Assets): number {
   return total
 }
 
-function formatTimeSaved(totalWords: number): string {
-  const mins = Math.round((totalWords / 250) * 60)
-  if (mins >= 60) return `${Math.floor(mins / 60)}h${(mins % 60) > 0 ? String(mins % 60).padStart(2, '0') : '00'}`
-  return `${mins} min`
+function formatTimeSaved(tw: number): string {
+  const m = Math.round((tw / 250) * 60)
+  return m >= 60 ? `${Math.floor(m / 60)}h${(m % 60) > 0 ? String(m % 60).padStart(2, '0') : '00'}` : `${m} min`
 }
 
 // --- HOOKS ---
@@ -421,40 +294,26 @@ function useReveal(delay: number, trigger: unknown): boolean {
   useEffect(() => { setV(false); const t = setTimeout(() => setV(true), delay); return () => clearTimeout(t) }, [delay, trigger])
   return v
 }
-
 function RevealWrapper({ delay, trigger, children }: { delay: number; trigger: unknown; children: React.ReactNode }) {
   const v = useReveal(delay, trigger)
   return <div className={`transition-all duration-500 ${v ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'}`}>{v && children}</div>
 }
-
 function TypewriterText({ text, speed = 25, trigger }: { text: string; speed?: number; trigger: unknown }) {
-  const [d, setD] = useState('')
-  const [done, setDone] = useState(false)
-  useEffect(() => {
-    setD(''); setDone(false); let i = 0
-    const iv = setInterval(() => { if (i < text.length) { setD(text.substring(0, i + 1)); i++ } else { clearInterval(iv); setDone(true) } }, speed)
-    return () => clearInterval(iv)
-  }, [text, speed, trigger])
+  const [d, setD] = useState(''); const [done, setDone] = useState(false)
+  useEffect(() => { setD(''); setDone(false); let i = 0; const iv = setInterval(() => { if (i < text.length) { setD(text.substring(0, i + 1)); i++ } else { clearInterval(iv); setDone(true) } }, speed); return () => clearInterval(iv) }, [text, speed, trigger])
   return <span>{d}{!done && <span className="inline-block w-0.5 h-4 bg-orange-400 ml-0.5 animate-pulse" />}</span>
 }
 
 // --- COMPONENTS ---
-
 function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
-  const tw = countTotalWords(kit.assets), ts = formatTimeSaved(tw)
-  const fc = Object.keys(kit.assets).filter(k => k !== 'image_data').length
-  const ps = (kit.generation_time_ms / 1000).toFixed(0)
+  const tw = countTotalWords(kit.assets), ts = formatTimeSaved(tw), fc = Object.keys(kit.assets).filter(k => k !== 'image_data').length, ps = (kit.generation_time_ms / 1000).toFixed(0)
   const [showInfo, setShowInfo] = useState(false)
   return (
     <div className="mb-6 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 p-5 shadow-lg shadow-emerald-500/10">
       <div className="flex items-center gap-6 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center"><Zap className="w-6 h-6 text-emerald-400" /></div>
-          <div className="flex items-start gap-1">
-            <div><div className="text-2xl font-bold text-emerald-300">{ts}</div><div className="text-xs text-emerald-400/60">économisées</div></div>
-            <button onClick={() => setShowInfo(!showInfo)} className="ml-1 p-0.5 rounded-full hover:bg-emerald-500/20 transition-colors"><HelpCircle className="w-3.5 h-3.5 text-emerald-400/60 hover:text-emerald-300" /></button>
-          </div>
-        </div>
+        <div className="flex items-center gap-3"><div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center"><Zap className="w-6 h-6 text-emerald-400" /></div>
+          <div className="flex items-start gap-1"><div><div className="text-2xl font-bold text-emerald-300">{ts}</div><div className="text-xs text-emerald-400/60">économisées</div></div>
+            <button onClick={() => setShowInfo(!showInfo)} className="ml-1 p-0.5 rounded-full hover:bg-emerald-500/20 transition-colors"><HelpCircle className="w-3.5 h-3.5 text-emerald-400/60 hover:text-emerald-300" /></button></div></div>
         <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
         <div className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-emerald-400/60" /><div><div className="text-lg font-semibold text-white">{tw.toLocaleString()}</div><div className="text-xs text-white/40">mots générés</div></div></div>
         <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
@@ -462,75 +321,40 @@ function TimeSavedBanner({ kit }: { kit: GeneratedKit }) {
         <div className="h-10 w-px bg-emerald-500/20 hidden sm:block" />
         <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-emerald-400/60" /><div><div className="text-lg font-semibold text-white">{ps}s</div><div className="text-xs text-white/40">de pipeline</div></div></div>
       </div>
-      {showInfo && (
-        <div className="mt-4 pt-4 border-t border-emerald-500/20 text-xs text-white/70 leading-relaxed">
-          <div className="flex items-start justify-between gap-2 mb-2"><div className="font-semibold text-emerald-300">Comment ce temps est-il calculé ?</div><button onClick={() => setShowInfo(false)} className="p-0.5 rounded hover:bg-white/10"><X className="w-3.5 h-3.5 text-white/40" /></button></div>
-          <p className="mb-2">L'estimation s'appuie sur une vitesse moyenne de <strong className="text-emerald-300">250 mots/heure</strong> pour un rédacteur produisant du contenu <strong>multi-format</strong> (article + posts réseaux sociaux + SEO + newsletter + script audio).</p>
-          <p className="mb-2">Cette vitesse intègre la phase d'adaptation entre formats : un journaliste rédige 400-600 mots/heure sur un seul format, mais cette productivité chute à 200-300 mots/heure sur du multi-canal.</p>
-          <p className="text-white/40 text-[10px]">Sources : benchmarks Content Marketing Institute, HubSpot Content Performance Reports.</p>
-        </div>
-      )}
+      {showInfo && <div className="mt-4 pt-4 border-t border-emerald-500/20 text-xs text-white/70 leading-relaxed">
+        <div className="flex items-start justify-between gap-2 mb-2"><div className="font-semibold text-emerald-300">Comment ce temps est-il calculé ?</div><button onClick={() => setShowInfo(false)} className="p-0.5 rounded hover:bg-white/10"><X className="w-3.5 h-3.5 text-white/40" /></button></div>
+        <p className="mb-2">L'estimation s'appuie sur une vitesse moyenne de <strong className="text-emerald-300">250 mots/heure</strong> pour un rédacteur produisant du contenu <strong>multi-format</strong> (article + posts réseaux sociaux + SEO + newsletter + script audio).</p>
+        <p className="mb-2">Cette vitesse intègre la phase d'adaptation entre formats : un journaliste rédige 400-600 mots/heure sur un seul format, mais cette productivité chute à 200-300 mots/heure sur du multi-canal.</p>
+        <p className="text-white/40 text-[10px]">Sources : benchmarks Content Marketing Institute, HubSpot Content Performance Reports.</p>
+      </div>}
     </div>
   )
 }
 
 function ScoreGauge({ score, label }: { score: number; label: string }) {
   const pct = (score / 10) * 100, color = score >= 8 ? '#22c55e' : score >= 6 ? '#eab308' : '#ef4444'
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative w-12 h-12">
-        <svg viewBox="0 0 36 36" className="w-12 h-12 -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" /><circle cx="18" cy="18" r="15.5" fill="none" stroke={color} strokeWidth="3" strokeDasharray={`${pct} 100`} strokeLinecap="round" /></svg>
-        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold" style={{ color }}>{score}</span>
-      </div>
-      <span className="text-[10px] text-white/40 text-center leading-tight">{label}</span>
-    </div>
-  )
+  return (<div className="flex flex-col items-center gap-1"><div className="relative w-12 h-12"><svg viewBox="0 0 36 36" className="w-12 h-12 -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" /><circle cx="18" cy="18" r="15.5" fill="none" stroke={color} strokeWidth="3" strokeDasharray={`${pct} 100`} strokeLinecap="round" /></svg><span className="absolute inset-0 flex items-center justify-center text-xs font-bold" style={{ color }}>{score}</span></div><span className="text-[10px] text-white/40 text-center leading-tight">{label}</span></div>)
 }
 
 function QualityScoreView({ score }: { score: QualityScore }) {
   const entries = Object.entries(score.scores || {}), labels: Record<string, string> = { fidelite_faits: 'Fidélité', qualite_redactionnelle: 'Rédaction', diversite_formats: 'Diversité', ton_editorial: 'Ton', seo: 'SEO' }
-  return (
-    <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-5 mb-6">
-      <div className="flex items-center gap-2 mb-4"><Star className="w-5 h-5 text-purple-400" /><h3 className="font-bold text-purple-300">Score qualité</h3><span className="ml-auto text-2xl font-bold text-purple-300">{score.score_global}/10</span></div>
-      {entries.length > 0 && <div className="flex justify-around mb-4">{entries.map(([k, v]) => <ScoreGauge key={k} score={v} label={labels[k] || k} />)}</div>}
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        {score.points_forts?.length > 0 && <div><div className="flex items-center gap-1 mb-1 text-green-400"><TrendingUp className="w-3 h-3" /> Points forts</div>{score.points_forts.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}</div>}
-        {score.points_amelioration?.length > 0 && <div><div className="flex items-center gap-1 mb-1 text-amber-400"><AlertTriangle className="w-3 h-3" /> À améliorer</div>{score.points_amelioration.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}</div>}
-      </div>
-    </div>
-  )
+  return (<div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-5 mb-6"><div className="flex items-center gap-2 mb-4"><Star className="w-5 h-5 text-purple-400" /><h3 className="font-bold text-purple-300">Score qualité</h3><span className="ml-auto text-2xl font-bold text-purple-300">{score.score_global}/10</span></div>
+    {entries.length > 0 && <div className="flex justify-around mb-4">{entries.map(([k, v]) => <ScoreGauge key={k} score={v} label={labels[k] || k} />)}</div>}
+    <div className="grid grid-cols-2 gap-3 text-xs">{score.points_forts?.length > 0 && <div><div className="flex items-center gap-1 mb-1 text-green-400"><TrendingUp className="w-3 h-3" /> Points forts</div>{score.points_forts.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}</div>}
+      {score.points_amelioration?.length > 0 && <div><div className="flex items-center gap-1 mb-1 text-amber-400"><AlertTriangle className="w-3 h-3" /> À améliorer</div>{score.points_amelioration.map((p, i) => <p key={i} className="text-white/60 mb-0.5">• {safeText(p)}</p>)}</div>}</div></div>)
 }
 
 function FactCheckView({ factCheck }: { factCheck: FactCheck }) {
   const ok = factCheck.verified_facts?.filter(f => f.verified).length || 0, total = factCheck.verified_facts?.length || 0
-  return (
-    <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-5 mb-6">
-      <div className="flex items-center gap-2 mb-3"><ShieldCheck className="w-5 h-5 text-teal-400" /><h3 className="font-bold text-teal-300">Vérification des faits</h3><span className="ml-auto text-sm text-teal-300 font-medium">{ok}/{total} vérifiés</span></div>
-      {factCheck.verified_facts?.length > 0 && <div className="space-y-2 mb-3">{factCheck.verified_facts.map((f, i) => (
-        <div key={i} className="flex items-start gap-2 text-sm">
-          {f.verified ? <ShieldCheck className="w-4 h-4 text-green-400 mt-0.5 shrink-0" /> : <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />}
-          <div><span className={f.verified ? 'text-white/80' : 'text-amber-200/80'}>{safeText(f.fact)}</span>{f.source && <a href={f.source} target="_blank" rel="noopener noreferrer" className="ml-2 text-teal-400/60 hover:text-teal-300 inline-flex items-center gap-1 text-xs">source <ExternalLink className="w-3 h-3" /></a>}</div>
-        </div>
-      ))}</div>}
-      {factCheck.sources?.length > 0 && <div className="border-t border-teal-500/20 pt-2 mt-2"><p className="text-[10px] text-white/30 mb-1">Sources consultées :</p><div className="flex flex-wrap gap-2">{factCheck.sources.map((s, i) => <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-teal-400/50 hover:text-teal-300 flex items-center gap-1">{safeText(s.title).substring(0, 40)} <ExternalLink className="w-2.5 h-2.5" /></a>)}</div></div>}
-    </div>
-  )
+  return (<div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-5 mb-6"><div className="flex items-center gap-2 mb-3"><ShieldCheck className="w-5 h-5 text-teal-400" /><h3 className="font-bold text-teal-300">Vérification des faits</h3><span className="ml-auto text-sm text-teal-300 font-medium">{ok}/{total} vérifiés</span></div>
+    {factCheck.verified_facts?.length > 0 && <div className="space-y-2 mb-3">{factCheck.verified_facts.map((f, i) => (<div key={i} className="flex items-start gap-2 text-sm">{f.verified ? <ShieldCheck className="w-4 h-4 text-green-400 mt-0.5 shrink-0" /> : <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />}<div><span className={f.verified ? 'text-white/80' : 'text-amber-200/80'}>{safeText(f.fact)}</span>{f.source && <a href={f.source} target="_blank" rel="noopener noreferrer" className="ml-2 text-teal-400/60 hover:text-teal-300 inline-flex items-center gap-1 text-xs">source <ExternalLink className="w-3 h-3" /></a>}</div></div>))}</div>}
+    {factCheck.sources?.length > 0 && <div className="border-t border-teal-500/20 pt-2 mt-2"><p className="text-[10px] text-white/30 mb-1">Sources consultées :</p><div className="flex flex-wrap gap-2">{factCheck.sources.map((s, i) => <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-teal-400/50 hover:text-teal-300 flex items-center gap-1">{safeText(s.title).substring(0, 40)} <ExternalLink className="w-2.5 h-2.5" /></a>)}</div></div>}</div>)
 }
 
 function StepIndicator({ step, elapsed }: { step: PipelineStep; elapsed: number }) {
   const steps = [{ key: 'ingesting', label: 'Ingestion', icon: Globe2 }, { key: 'routing', label: 'Analyse', icon: Sparkles }, { key: 'generating', label: 'Génération', icon: Newspaper }]
   const ci = steps.findIndex(s => s.key === step)
-  return (
-    <div className="flex items-center justify-center gap-2 mb-8">
-      {steps.map((s, i) => { const Icon = s.icon, isA = s.key === step, isD = ci > i || step === 'done'; return (
-        <div key={s.key} className="flex items-center gap-2">
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-500 ${isA ? 'bg-orange-500 text-white scale-105 shadow-lg shadow-orange-500/30' : isD ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'}`}>{isA ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}{s.label}</div>
-          {i < steps.length - 1 && <div className={`w-8 h-0.5 ${isD ? 'bg-green-500/50' : 'bg-white/10'}`} />}
-        </div>
-      )})}
-      {elapsed > 0 && <span className="ml-4 text-sm text-white/40 font-mono">{(elapsed / 1000).toFixed(1)}s</span>}
-    </div>
-  )
+  return (<div className="flex items-center justify-center gap-2 mb-8">{steps.map((s, i) => { const Icon = s.icon, isA = s.key === step, isD = ci > i || step === 'done'; return (<div key={s.key} className="flex items-center gap-2"><div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-500 ${isA ? 'bg-orange-500 text-white scale-105 shadow-lg shadow-orange-500/30' : isD ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'}`}>{isA ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}{s.label}</div>{i < steps.length - 1 && <div className={`w-8 h-0.5 ${isD ? 'bg-green-500/50' : 'bg-white/10'}`} />}</div>) })}{elapsed > 0 && <span className="ml-4 text-sm text-white/40 font-mono">{(elapsed / 1000).toFixed(1)}s</span>}</div>)
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -540,40 +364,23 @@ function CopyButton({ text }: { text: string }) {
 
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
-  const isGoogle = imageData?.photographer && !imageData.photographer.includes('IA') && !imageData.photographer.includes('Flux')
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div>
-        <span className="font-semibold text-white flex-1">{title}</span>
-        {copyText && <CopyButton text={copyText} />}
-        {open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}
-      </button>
-      {open && <div>
-        {imageData && <div className="px-5 pt-2">
-          <img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-white/5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-          <div className="flex items-center justify-between mt-1 text-xs text-white/30">
-            <span>{isGoogle ? `📷 ${imageData.photographer}` : '🤖 Image IA'}</span>
-            <a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{isGoogle ? 'Source' : 'Pollinations'}</a>
-          </div>
-        </div>}
-        <div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div>
-      </div>}
-    </div>
-  )
+  const isAI = imageData?.photographer?.includes('IA') || imageData?.photographer?.includes('Flux')
+  const sourceLabel = isAI ? 'Pollinations × Flux' : imageData?.src?.includes('wikimedia') ? 'Wikimedia Commons' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
+  return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
+    <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
+    {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-white/5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>{isAI ? '🤖 Image IA (Flux)' : `📷 ${imageData.photographer}`}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
+  </div>)
 }
 
 function ArticleView({ article, imageData, trigger }: { article: NonNullable<Assets['article']>; imageData?: Assets['image_data']; trigger: unknown }) {
   const t = safeText(article.title), ch = safeText(article.chapo), b = safeText(article.body || article.content), chu = safeText(article.chute), au = safeText(article.author), pd = safeText(article.publish_date)
-  return (
-    <AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${t}\n\n${ch}\n\n${b}\n\n${chu}`.trim()}>
-      <h3 className="text-lg font-bold text-white mb-2"><TypewriterText text={t} speed={20} trigger={trigger} /></h3>
-      {ch && <p className="text-orange-300 font-medium mb-4 italic">{ch}</p>}
-      <div className="whitespace-pre-wrap mb-4">{b}</div>
-      {chu && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chu}</p>}
-      {au && <p className="text-xs text-white/30 mt-2">Par {au} {pd && `— ${pd}`}</p>}
-    </AssetCard>
-  )
+  return (<AssetCard title="Article" icon={FileText} color="bg-blue-600" imageData={imageData} copyText={`${t}\n\n${ch}\n\n${b}\n\n${chu}`.trim()}>
+    <h3 className="text-lg font-bold text-white mb-2"><TypewriterText text={t} speed={20} trigger={trigger} /></h3>
+    {ch && <p className="text-orange-300 font-medium mb-4 italic">{ch}</p>}
+    <div className="whitespace-pre-wrap mb-4">{b}</div>
+    {chu && <p className="text-white/50 italic border-t border-white/10 pt-3 mt-3">{chu}</p>}
+    {au && <p className="text-xs text-white/30 mt-2">Par {au} {pd && `— ${pd}`}</p>}
+  </AssetCard>)
 }
 
 function PostView({ platform, content, icon, color }: { platform: string; content: string; icon: React.ElementType; color: string }) {
@@ -584,42 +391,32 @@ function AudioView({ audio }: { audio: NonNullable<Assets['audio_flash']> }) {
   const script = getAudioScript(audio), duration = getAudioDuration(audio)
   const [url, setUrl] = useState<string | null>(null), [loading, setLoading] = useState(false), [playing, setPlaying] = useState(false)
   const ref = useRef<HTMLAudioElement | null>(null)
-  return (
-    <AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={script}>
-      <div className="flex items-center gap-2 mb-3"><span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">~{duration}s</span></div>
-      {!url && <button onClick={async () => { setLoading(true); setUrl(await generateAudio(script)); setLoading(false) }} disabled={loading} className="flex items-center gap-2 mb-4 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}{loading ? 'Génération audio...' : 'Générer l\'audio'}</button>}
-      {url && <div className="mb-4"><audio ref={ref} src={url} onEnded={() => setPlaying(false)} className="hidden" /><div className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20"><button onClick={() => { if (!ref.current) return; playing ? (ref.current.pause(), setPlaying(false)) : (ref.current.play(), setPlaying(true)) }} className="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center transition-colors">{playing ? <Square className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white ml-0.5" />}</button><div className="flex-1"><div className="text-xs text-purple-300 font-medium">Flash audio généré</div><div className="text-xs text-white/40">Voix IA — {duration}s</div></div><a href={url} download="audio-flash.mp3" className="text-xs text-purple-400 hover:text-purple-300">MP3</a></div></div>}
-      <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-white/60">{script}</p>
-    </AssetCard>
-  )
+  return (<AssetCard title="Audio Flash" icon={Mic} color="bg-purple-600" copyText={script}>
+    <div className="flex items-center gap-2 mb-3"><span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">~{duration}s</span></div>
+    {!url && <button onClick={async () => { setLoading(true); setUrl(await generateAudio(script)); setLoading(false) }} disabled={loading} className="flex items-center gap-2 mb-4 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}{loading ? 'Génération audio...' : 'Générer l\'audio'}</button>}
+    {url && <div className="mb-4"><audio ref={ref} src={url} onEnded={() => setPlaying(false)} className="hidden" /><div className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20"><button onClick={() => { if (!ref.current) return; playing ? (ref.current.pause(), setPlaying(false)) : (ref.current.play(), setPlaying(true)) }} className="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center transition-colors">{playing ? <Square className="w-4 h-4 text-white" /> : <Play className="w-4 h-4 text-white ml-0.5" />}</button><div className="flex-1"><div className="text-xs text-purple-300 font-medium">Flash audio généré</div><div className="text-xs text-white/40">Voix IA — {duration}s</div></div><a href={url} download="audio-flash.mp3" className="text-xs text-purple-400 hover:text-purple-300">MP3</a></div></div>}
+    <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-white/60">{script}</p>
+  </AssetCard>)
 }
 
 function SeoView({ seo }: { seo: NonNullable<Assets['seo_meta']> }) {
   const t = safeText(seo.title_tag || seo.title), d = safeText(seo.meta_description || seo.description)
   const kw = Array.isArray(seo.keywords) ? seo.keywords.map(safeText) : (typeof seo.keywords === 'string' ? seo.keywords.split(',').map(k => k.trim()) : [])
-  return (
-    <AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${t}\n${d}\n${kw.join(', ')}`}>
-      <div className="space-y-2"><div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{t}</span></div><div><span className="text-white/40 text-xs">Meta desc:</span> <span>{d}</span></div><div className="flex flex-wrap gap-1 mt-2">{kw.map((k, i) => <span key={i} className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded-full">{k}</span>)}</div></div>
-    </AssetCard>
-  )
+  return (<AssetCard title="SEO" icon={Search} color="bg-green-600" copyText={`${t}\n${d}\n${kw.join(', ')}`}><div className="space-y-2"><div><span className="text-white/40 text-xs">Title tag:</span> <span className="text-green-300">{t}</span></div><div><span className="text-white/40 text-xs">Meta desc:</span> <span>{d}</span></div><div className="flex flex-wrap gap-1 mt-2">{kw.map((k, i) => <span key={i} className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded-full">{k}</span>)}</div></div></AssetCard>)
 }
 
 function EditorialPlanView({ plan, profileId }: { plan: EditorialPlan; profileId: ProfileId }) {
   const facts = getKeyFactsList(plan), formats = plan.target_formats || plan.formats || [], profile = PROFILES.find(p => p.id === profileId)!
-  return (
-    <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 mb-6">
-      <div className="flex items-center gap-2 mb-3"><Sparkles className="w-5 h-5 text-orange-400" /><h3 className="font-bold text-orange-300">Analyse éditoriale</h3><span className={`ml-auto text-xs font-medium px-2.5 py-1 rounded-full border ${profile.color}`}>{profile.emoji} {profile.label}</span></div>
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div><span className="text-white/40 text-xs block">Type</span><span className="text-white font-medium">{safeText(plan.content_type || plan.source_type || 'article')}</span></div>
-        <div><span className="text-white/40 text-xs block">Ton</span><span className="text-white font-medium">{safeText(plan.tone || 'informatif')}</span></div>
-        {(plan.angle || plan.title || plan.headline) && <div className="col-span-2"><span className="text-white/40 text-xs block">Angle</span><span className="text-orange-200">{safeText(plan.angle || plan.headline || plan.title)}</span></div>}
-        {plan.summary && <div className="col-span-2"><span className="text-white/40 text-xs block">Résumé</span><span className="text-white/70 text-xs">{safeText(plan.summary)}</span></div>}
-        {plan.target_audience && <div className="col-span-2"><span className="text-white/40 text-xs block">Audience cible</span><span className="text-white/70 text-xs">{safeText(plan.target_audience)}</span></div>}
-        {formats.length > 0 && <div className="col-span-2"><span className="text-white/40 text-xs block">Formats</span><div className="flex flex-wrap gap-1 mt-1">{formats.map((f, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">{safeText(f)}</span>)}</div></div>}
-        {facts.length > 0 && <div className="col-span-2"><span className="text-white/40 text-xs block">Faits clés</span><ul className="list-disc list-inside text-white/70 text-xs mt-1 space-y-1">{facts.map((f, i) => <li key={i}>{f}</li>)}</ul></div>}
-      </div>
-    </div>
-  )
+  return (<div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 mb-6"><div className="flex items-center gap-2 mb-3"><Sparkles className="w-5 h-5 text-orange-400" /><h3 className="font-bold text-orange-300">Analyse éditoriale</h3><span className={`ml-auto text-xs font-medium px-2.5 py-1 rounded-full border ${profile.color}`}>{profile.emoji} {profile.label}</span></div>
+    <div className="grid grid-cols-2 gap-4 text-sm">
+      <div><span className="text-white/40 text-xs block">Type</span><span className="text-white font-medium">{safeText(plan.content_type || plan.source_type || 'article')}</span></div>
+      <div><span className="text-white/40 text-xs block">Ton</span><span className="text-white font-medium">{safeText(plan.tone || 'informatif')}</span></div>
+      {(plan.angle || plan.title || plan.headline) && <div className="col-span-2"><span className="text-white/40 text-xs block">Angle</span><span className="text-orange-200">{safeText(plan.angle || plan.headline || plan.title)}</span></div>}
+      {plan.summary && <div className="col-span-2"><span className="text-white/40 text-xs block">Résumé</span><span className="text-white/70 text-xs">{safeText(plan.summary)}</span></div>}
+      {plan.target_audience && <div className="col-span-2"><span className="text-white/40 text-xs block">Audience cible</span><span className="text-white/70 text-xs">{safeText(plan.target_audience)}</span></div>}
+      {formats.length > 0 && <div className="col-span-2"><span className="text-white/40 text-xs block">Formats</span><div className="flex flex-wrap gap-1 mt-1">{formats.map((f, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">{safeText(f)}</span>)}</div></div>}
+      {facts.length > 0 && <div className="col-span-2"><span className="text-white/40 text-xs block">Faits clés</span><ul className="list-disc list-inside text-white/70 text-xs mt-1 space-y-1">{facts.map((f, i) => <li key={i}>{f}</li>)}</ul></div>}
+    </div></div>)
 }
 
 // --- MAIN APP ---
@@ -652,10 +449,7 @@ export default function App() {
       const raw = input.trim(); setStep('routing')
       const ep = parseJSON(await callLLM(ROUTER_PROMPT, `Analyse ce contenu:\n\n${raw}`, 0.3, 1500))
       setStep('generating')
-      const [gen, img] = await Promise.all([
-        callLLM(sp.generatorPrompt, `Plan:\n${JSON.stringify(ep)}\n\nSource:\n${raw}\n\nRéponds en JSON "assets".`, 0.7, 4000),
-        searchImage(ep).catch(() => null)
-      ])
+      const [gen, img] = await Promise.all([callLLM(sp.generatorPrompt, `Plan:\n${JSON.stringify(ep)}\n\nSource:\n${raw}\n\nRéponds en JSON "assets".`, 0.7, 4000), searchImage(ep).catch(() => null)])
       const parsed = parseJSON(gen); const assets = parsed.assets || parsed; if (img) assets.image_data = img
       clearInterval(timer); const tt = Date.now() - start
       setKit({ editorial_plan: ep, assets, generated_at: new Date().toISOString(), generation_time_ms: tt }); setRevealTrigger(t => t + 1); setStep('done')
@@ -672,17 +466,13 @@ export default function App() {
         <div className="flex items-center gap-4"><button onClick={() => setUseN8N(!useN8N)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${useN8N ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'}`}><div className={`w-2 h-2 rounded-full ${useN8N ? 'bg-green-400' : 'bg-white/20'}`} />{useN8N ? 'n8n Pipeline' : 'Local'}</button><span className="text-xs text-white/20 font-mono">v2.0 — Hackathon</span></div>
       </div></header>
 
-      <div className="border-b border-white/5 px-6 py-3"><div className="max-w-6xl mx-auto flex items-center gap-3">
-        <span className="text-xs text-white/30 shrink-0">Profil éditorial :</span>
-        <div className="flex gap-2 flex-wrap">{PROFILES.map(p => <button key={p.id} onClick={() => setProfile(p.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${profile === p.id ? p.color : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'}`}>{p.emoji} {p.label}</button>)}</div>
-      </div></div>
+      <div className="border-b border-white/5 px-6 py-3"><div className="max-w-6xl mx-auto flex items-center gap-3"><span className="text-xs text-white/30 shrink-0">Profil éditorial :</span><div className="flex gap-2 flex-wrap">{PROFILES.map(p => <button key={p.id} onClick={() => setProfile(p.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${profile === p.id ? p.color : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:border-white/20'}`}>{p.emoji} {p.label}</button>)}</div></div></div>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="mb-8"><label className="block text-sm text-white/50 mb-2">Colle ton contenu brut — article, brief, communiqué, notes...</label><div className="relative">
           <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="Le Stade Toulousain s'est imposé 31-24 face à l'Union Bordeaux-Bègles en demi-finale du Top 14..." className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-white/20 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all" disabled={step !== 'idle' && step !== 'done' && step !== 'error'} />
           <div className="absolute bottom-3 right-3 flex items-center gap-3"><span className="text-xs text-white/30">{input.split(/\s+/).filter(Boolean).length} mots</span>
-            <button onClick={run} disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-medium text-sm hover:shadow-lg hover:shadow-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all">{step !== 'idle' && step !== 'done' && step !== 'error' ? <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</> : <><Send className="w-4 h-4" /> Générer le kit</>}</button>
-          </div>
+            <button onClick={run} disabled={!input.trim() || (step !== 'idle' && step !== 'done' && step !== 'error')} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg font-medium text-sm hover:shadow-lg hover:shadow-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all">{step !== 'idle' && step !== 'done' && step !== 'error' ? <><Loader2 className="w-4 h-4 animate-spin" /> Génération...</> : <><Send className="w-4 h-4" /> Générer le kit</>}</button></div>
         </div></div>
 
         {step !== 'idle' && <StepIndicator step={step} elapsed={elapsed} />}
@@ -691,16 +481,13 @@ export default function App() {
         {kit && <div>
           <div className="flex items-center gap-4 mb-6 text-xs text-white/40">
             <span>Généré en <strong className="text-orange-400">{(kit.generation_time_ms / 1000).toFixed(1)}s</strong></span><span>•</span>
-            <span>{Object.keys(kit.assets).filter(k => k !== 'image_data').length} formats</span><span>•</span>
-            <span>Mode : {useN8N ? 'n8n Pipeline' : MODEL}</span>
+            <span>{Object.keys(kit.assets).filter(k => k !== 'image_data').length} formats</span><span>•</span><span>Mode : {useN8N ? 'n8n Pipeline' : MODEL}</span>
             {kit.fact_check && <><span>•</span><span className="text-teal-400">Fact-check actif</span></>}
             {kit.quality_score?.score_global !== undefined && <><span>•</span><span className="text-purple-400">Score : {kit.quality_score.score_global}/10</span></>}
           </div>
-
           <RevealWrapper delay={200} trigger={revealTrigger}><EditorialPlanView plan={kit.editorial_plan} profileId={activeProfile} /></RevealWrapper>
           {kit.fact_check && kit.fact_check.verified_facts?.length > 0 && <RevealWrapper delay={500} trigger={revealTrigger}><FactCheckView factCheck={kit.fact_check} /></RevealWrapper>}
           {kit.quality_score && <RevealWrapper delay={800} trigger={revealTrigger}><QualityScoreView score={kit.quality_score} /></RevealWrapper>}
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {kit.assets.article && <RevealWrapper delay={1100} trigger={revealTrigger}><div className="lg:col-span-2"><ArticleView article={kit.assets.article} imageData={kit.assets.image_data} trigger={revealTrigger} /></div></RevealWrapper>}
             {kit.assets.post_x && <RevealWrapper delay={1400} trigger={revealTrigger}><PostView platform="X" content={gpt(kit.assets.post_x)} icon={MessageCircle} color="bg-sky-600" /></RevealWrapper>}
@@ -710,7 +497,6 @@ export default function App() {
             {kit.assets.seo_meta && <RevealWrapper delay={2600} trigger={revealTrigger}><SeoView seo={kit.assets.seo_meta} /></RevealWrapper>}
             {kit.assets.newsletter_blurb && <RevealWrapper delay={2900} trigger={revealTrigger}><AssetCard title="Newsletter" icon={FileText} color="bg-amber-600" copyText={`Objet : ${safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}\n\n${safeText(kit.assets.newsletter_blurb.body)}`}><div className="text-amber-300 font-medium mb-2">{safeText(kit.assets.newsletter_blurb.subject_line || kit.assets.newsletter_blurb.subject)}</div><p className="whitespace-pre-wrap">{safeText(kit.assets.newsletter_blurb.body)}</p></AssetCard></RevealWrapper>}
           </div>
-
           <div className="mt-6"><RevealWrapper delay={3300} trigger={revealTrigger}><TimeSavedBanner kit={kit} /></RevealWrapper></div>
         </div>}
       </main>
