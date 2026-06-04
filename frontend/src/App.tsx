@@ -190,15 +190,15 @@ Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.`
   }
 }
 
-// Fallback Pexels — vraies photos stock, query simplifiée sans appel LLM
+// Fallback Pexels — vraies photos stock avec requête anglaise
 async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   if (!PEXELS_KEY) return null
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    // Extrait 2-3 mots-clés du sujet sans appel LLM
-    const words = angle.split(/\s+/).filter(w => w.length > 4).slice(0, 3).join(' ')
-    const query = words || angle.substring(0, 30)
-    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
+    // Traduit en anglais via GPT pour de meilleurs résultats Pexels
+    const query = await callLLM('Translate this topic into 2-3 English keywords for a photo search. Reply ONLY with the keywords, nothing else.', angle, 0.1, 30)
+    const clean = query.replace(/['"]/g, '').trim()
+    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(clean)}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
     if (!resp.ok) return null
     const data = await resp.json()
     if (!data.photos?.length) return null
@@ -207,11 +207,36 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Orchestrateur : Wikipedia (vraies images) → Pexels (photos stock réelles)
+// Fallback Wikimedia Commons — recherche large dans les photos libres
+async function searchWikimediaCommons(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  try {
+    const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
+    const words = angle.split(/\s+/).filter(w => w.length > 4).slice(0, 3).join(' ')
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(words)}&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
+    const resp = await fetch(url)
+    if (!resp.ok) return null
+    const data = await resp.json()
+    if (!data.query?.pages) return null
+    const pages = Object.values(data.query.pages) as Array<{ title: string; imageinfo?: Array<{ thumburl: string; thumbwidth: number; thumbheight: number; descriptionurl: string; extmetadata?: { Artist?: { value: string } } }> }>
+    const valid = pages.filter(p => {
+      const t = p.title?.toLowerCase() || ''
+      return (t.endsWith('.jpg') || t.endsWith('.jpeg') || t.endsWith('.png')) && !t.includes('logo') && !t.includes('icon') && !t.includes('blason') && !t.includes('flag') && !t.includes('map') && p.imageinfo?.[0]?.thumbwidth && p.imageinfo[0].thumbwidth >= 400
+    })
+    if (!valid.length) return null
+    const best = valid.find(p => p.imageinfo![0].thumbwidth / p.imageinfo![0].thumbheight > 1.1) || valid[0]
+    const info = best.imageinfo![0]
+    const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '').substring(0, 50) || 'Wikimedia'
+    return { url: info.thumburl, photographer: artist, src: info.descriptionurl }
+  } catch { return null }
+}
+
+// Orchestrateur : Wikipedia page → Pexels → Wikimedia Commons (toujours des vraies images)
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   const wiki = await searchWikipediaImage(editorialPlan)
   if (wiki) return wiki
-  return await searchPexels(editorialPlan)
+  const pexels = await searchPexels(editorialPlan)
+  if (pexels) return pexels
+  return await searchWikimediaCommons(editorialPlan)
 }
 
 async function generateAudio(script: string): Promise<string | null> {
@@ -355,7 +380,7 @@ function CopyButton({ text }: { text: string }) {
 
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
-  const sourceLabel = imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : 'Pexels'
+  const sourceLabel = imageData?.src?.includes('wikipedia') ? 'Wikipedia' : imageData?.src?.includes('wikimedia') || imageData?.src?.includes('commons') ? 'Wikimedia' : 'Pexels'
   return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
     <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
     {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-gray-800" loading="eager" /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>📷 {imageData.photographer}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
