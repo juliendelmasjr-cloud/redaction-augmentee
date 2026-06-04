@@ -142,63 +142,43 @@ function parseJSON(text: string) {
 
 // --- IMAGE SEARCH ---
 
-// Wikipedia FR : image d'infobox (personne, lieu, organisation)
+// Wikipedia FR : image d'infobox — SANS appel LLM
 async function searchWikipediaImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    const facts = editorialPlan.key_facts || []
-    // GPT génère 3 noms d'articles Wikipedia à tester (événement d'abord, puis lieu, puis personne)
-    const entitiesPrompt = await callLLM(
-      `À partir du sujet ci-dessous, donne exactement 3 titres d'articles Wikipedia FR séparés par des virgules.
-ORDRE DE PRIORITÉ :
-1) L'événement ou la compétition (ex: "Ligue des champions de l'UEFA 2025-2026", "Roland-Garros 2026")
-2) Le lieu principal (ex: "Stade de France", "Court Philippe-Chatrier")
-3) La personne ou l'organisation principale
-Utilise les noms exacts tels qu'ils apparaissent sur Wikipedia FR.
-Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.`,
-      `Sujet : ${angle}\nFaits : ${facts.slice(0, 4).join(' / ')}`,
-      0.1, 80
-    )
-    const entities = entitiesPrompt.replace(/['"]/g, '').split(',').map(e => e.trim()).filter(Boolean)
-    
-    // Teste chaque entité via l'API pageimages (image d'infobox)
-    for (const entity of entities.slice(0, 3)) {
+    // Extrait les mots significatifs (>4 lettres) comme requête Wikipedia
+    const words = angle.split(/\s+/).filter(w => w.length > 4).slice(0, 4).join(' ')
+    if (!words) return null
+
+    // Cherche l'article Wikipedia
+    const searchResp = await fetch(`https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(words)}&srlimit=3&format=json&origin=*`)
+    if (!searchResp.ok) return null
+    const searchData = await searchResp.json()
+    const results = searchData.query?.search || []
+
+    // Teste chaque résultat pour trouver une image d'infobox
+    for (const result of results) {
       try {
-        const url = `https://fr.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(entity)}&prop=pageimages&format=json&pithumbsize=1200&origin=*`
-        const resp = await fetch(url)
-        if (!resp.ok) continue
-        const data = await resp.json()
-        const pages = data.query?.pages || {}
-        const page = Object.values(pages)[0] as { pageid?: number; pageimage?: string; thumbnail?: { source: string; width: number; height: number } }
-        
+        const pageResp = await fetch(`https://fr.wikipedia.org/w/api.php?action=query&pageids=${result.pageid}&prop=pageimages&format=json&pithumbsize=1200&origin=*`)
+        if (!pageResp.ok) continue
+        const pageData = await pageResp.json()
+        const page = Object.values(pageData.query?.pages || {})[0] as { pageimage?: string; thumbnail?: { source: string } }
         if (!page?.thumbnail?.source) continue
         const imgName = (page.pageimage || '').toLowerCase()
-        // Exclure les SVG, logos, blasons, drapeaux
-        if (imgName.endsWith('.svg') || imgName.includes('logo') || imgName.includes('blason') || imgName.includes('flag') || imgName.includes('crest') || imgName.includes('emblem')) continue
-        
-        return {
-          url: page.thumbnail.source,
-          photographer: entity,
-          src: `https://fr.wikipedia.org/wiki/${encodeURIComponent(entity)}`
-        }
+        if (imgName.endsWith('.svg') || imgName.includes('logo') || imgName.includes('blason') || imgName.includes('flag') || imgName.includes('crest')) continue
+        return { url: page.thumbnail.source, photographer: result.title, src: `https://fr.wikipedia.org/wiki/${encodeURIComponent(result.title)}` }
       } catch { continue }
     }
     return null
-  } catch (e) {
-    console.warn('Wikipedia image search failed:', e)
-    return null
-  }
+  } catch { return null }
 }
 
-// Fallback Pexels — vraies photos stock avec requête anglaise
+// Pexels — requête directe en français (pas de callLLM)
 async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   if (!PEXELS_KEY) return null
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    // Traduit en anglais via GPT pour de meilleurs résultats Pexels
-    const query = await callLLM('Translate this topic into 2-3 English keywords for a photo search. Reply ONLY with the keywords, nothing else.', angle, 0.1, 30)
-    const clean = query.replace(/['"]/g, '').trim()
-    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(clean)}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
+    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(angle.substring(0, 50))}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
     if (!resp.ok) return null
     const data = await resp.json()
     if (!data.photos?.length) return null
@@ -207,13 +187,13 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Wikimedia Commons — recherche large dans les photos libres
+// Wikimedia Commons — recherche large
 async function searchWikimediaCommons(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
     const words = angle.split(/\s+/).filter(w => w.length > 4).slice(0, 3).join(' ')
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(words)}&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`
-    const resp = await fetch(url)
+    if (!words) return null
+    const resp = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(words)}&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json&origin=*`)
     if (!resp.ok) return null
     const data = await resp.json()
     if (!data.query?.pages) return null
@@ -230,13 +210,17 @@ async function searchWikimediaCommons(editorialPlan: EditorialPlan): Promise<{ur
   } catch { return null }
 }
 
-// Orchestrateur : Wikipedia page → Pexels → Wikimedia Commons (toujours des vraies images)
+// Orchestrateur : Wikipedia → Pexels → Wikimedia Commons
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
+  console.log('🔍 Image search starting...', editorialPlan.angle)
   const wiki = await searchWikipediaImage(editorialPlan)
-  if (wiki) return wiki
+  if (wiki) { console.log('✅ Wikipedia image found'); return wiki }
   const pexels = await searchPexels(editorialPlan)
-  if (pexels) return pexels
-  return await searchWikimediaCommons(editorialPlan)
+  if (pexels) { console.log('✅ Pexels image found'); return pexels }
+  const commons = await searchWikimediaCommons(editorialPlan)
+  if (commons) { console.log('✅ Wikimedia Commons image found'); return commons }
+  console.log('❌ No image found')
+  return null
 }
 
 async function generateAudio(script: string): Promise<string | null> {
