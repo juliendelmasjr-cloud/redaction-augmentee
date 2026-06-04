@@ -75,16 +75,42 @@ const STYLE_MODULES: Record<ProfileId, string> = {
 }
 
 const OUTPUT_FORMAT = `
-FORMATS À PRODUIRE (tous en JSON dans un objet "assets") :
-- article : { "title", "chapo", "body" (minimum 500 mots, structuré en paragraphes), "chute", "author": "Rédaction [PROFIL]", "publish_date" }
-- post_x : { "text" (max 280 car), "hashtags": [] }
-- post_instagram : { "caption" (4-5 lignes engageantes), "hashtags": [] }
-- post_linkedin : { "text" (hook fort + 4-5 lignes + CTA) }
-- newsletter_blurb : { "subject" (objet email accrocheur), "body" (5 lignes max) }
-- audio_flash : "script à lire à voix haute, 30 secondes max, ton adapté au profil"
-- seo_meta : { "title" (60 car max), "description" (155 car max), "keywords": [] }
-RÈGLE ABSOLUE : Tous les champs texte doivent être des chaînes de caractères simples, jamais des objets imbriqués.
-Réponds UNIQUEMENT en JSON avec un objet "assets".`
+FORMATS À PRODUIRE — Réponds en JSON avec un objet "assets". Chaque champ texte = chaîne simple, jamais d'objet imbriqué.
+
+1. ARTICLE — { "title", "chapo", "body", "chute", "author": "Rédaction [PROFIL]", "publish_date" }
+   - title : informatif, accrocheur, 60-80 caractères. Pas de clickbait. Contient le fait principal.
+   - chapo : 2-3 phrases qui résument l'essentiel (Qui, Quoi, Quand, Où). En italique dans l'esprit.
+   - body : MINIMUM 500 MOTS. Structuré en 4-5 paragraphes. §1 = fait principal. §2 = contexte/background. §3 = détails/chiffres. §4 = réactions/implications. §5 = perspectives.
+   - chute : 1-2 phrases d'ouverture (enjeux futurs, question ouverte).
+
+2. POST X — { "text", "hashtags": [] }
+   - text : MAX 280 CARACTÈRES (impératif). 1 fait + 1 angle. Doit donner envie de cliquer. Peut inclure 1-2 emojis si le profil le permet.
+   - hashtags : 2-3 max, pertinents et existants (#Top14, #RolandGarros, pas de hashtags inventés).
+
+3. POST INSTAGRAM — { "caption", "hashtags": [] }
+   - caption : 4-6 lignes. Première ligne = hook accrocheur. Ligne 2-4 = développement accessible. Dernière ligne = CTA ou question. Emojis acceptés (2-3 max).
+   - hashtags : 5-8, mélange populaires (#actu #info) + spécifiques au sujet.
+
+4. POST LINKEDIN — { "text" }
+   - text : 5-7 lignes max. Ligne 1 = hook fort (chiffre, question, constat). Lignes 2-5 = développement orienté impact pro/business/marché. Dernière ligne = CTA ou question ouverte.
+   - Pas d'emojis ou très sobre (1 max). Max 3 hashtags en fin de post.
+
+5. NEWSLETTER — { "subject", "body" }
+   - subject : objet d'email accrocheur, 40-60 caractères. Doit créer l'urgence ou la curiosité.
+   - body : 4-6 lignes. Résumé de l'essentiel + 1 lien implicite vers l'article complet. Ton adapté au profil.
+
+6. AUDIO FLASH — chaîne de texte simple (pas d'objet)
+   - Script prêt à être lu à voix haute. 4-6 phrases. Durée cible : 25-35 secondes.
+   - Phrases courtes (max 15 mots). Pas de parenthèses, pas d'abréviations. Rythme oral naturel.
+   - Commencer par l'information principale. Finir par une perspective.
+
+7. SEO META — { "title", "description", "keywords": [] }
+   - title : 55-60 caractères max. Contient le mot-clé principal + le fait. Pas de titre clickbait.
+   - description : 145-155 caractères. Résume l'article en donnant envie de cliquer. Contient 1-2 mots-clés.
+   - keywords : 5-8 mots-clés pertinents pour le référencement, du plus spécifique au plus général.
+
+RÈGLE TECHNIQUE : Tous les champs doivent être des chaînes simples ou des tableaux de chaînes. JAMAIS d'objets imbriqués.
+Réponds UNIQUEMENT en JSON valide avec un objet "assets".`
 
 // --- PROFILES ---
 interface EditorialProfile { id: ProfileId; label: string; emoji: string; color: string; generatorPrompt: string }
@@ -329,7 +355,6 @@ function CopyButton({ text }: { text: string }) {
 
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
-  const isAI = false // Plus d'images IA, uniquement des vraies photos
   const sourceLabel = imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : 'Pexels'
   return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
     <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
