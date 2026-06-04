@@ -183,15 +183,18 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Pollinations Flux (IA) — toujours disponible, sans vérification
+// Fallback Pollinations Flux (IA) — prompt anglais pour fiabilité
 async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    const facts = (editorialPlan.key_facts || []).slice(0, 2).join(', ')
-    const subject = `${angle} ${facts}`.substring(0, 100)
-    const encoded = encodeURIComponent(`${subject}, professional press photography, AFP style, documentary realism, natural lighting, sharp focus, no text no watermark no logo`)
-    const params = new URLSearchParams({ width: '1200', height: '675', model: 'flux', nologo: 'true', enhance: 'true', seed: String(Date.now() % 1000000) })
-    const url = `https://image.pollinations.ai/prompt/${encoded}?${params.toString()}`
+    const promptQuery = await callLLM(
+      'Translate this news topic into a 10-word English image prompt for a realistic press photo. Reply ONLY with the prompt, nothing else.',
+      angle,
+      0.3, 50
+    )
+    const clean = promptQuery.replace(/['"]/g, '').trim()
+    const encoded = encodeURIComponent(`${clean}, professional press photography, realistic, sharp focus, no text no watermark`)
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=675&model=flux&nologo=true&seed=${Date.now() % 1000000}`
     return { url, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
   } catch { return null }
 }
