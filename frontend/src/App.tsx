@@ -121,15 +121,17 @@ async function searchWikipediaImage(editorialPlan: EditorialPlan): Promise<{url:
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
     const facts = editorialPlan.key_facts || []
-    // GPT génère 3 noms d'articles Wikipedia à tester (personne d'abord, puis lieu, puis sujet)
+    // GPT génère 3 noms d'articles Wikipedia à tester (événement d'abord, puis lieu, puis personne)
     const entitiesPrompt = await callLLM(
       `À partir du sujet ci-dessous, donne exactement 3 titres d'articles Wikipedia FR séparés par des virgules.
-ORDRE : 1) la personne principale, 2) le lieu principal, 3) l'organisation/événement.
+ORDRE DE PRIORITÉ :
+1) L'événement ou la compétition (ex: "Ligue des champions de l'UEFA 2025-2026", "Roland-Garros 2026")
+2) Le lieu principal (ex: "Stade de France", "Court Philippe-Chatrier")
+3) La personne ou l'organisation principale
 Utilise les noms exacts tels qu'ils apparaissent sur Wikipedia FR.
-Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.
-Exemple : "Antoine Dupont, Stade de France, Stade toulousain"`,
+Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.`,
       `Sujet : ${angle}\nFaits : ${facts.slice(0, 4).join(' / ')}`,
-      0.1, 60
+      0.1, 80
     )
     const entities = entitiesPrompt.replace(/['"]/g, '').split(',').map(e => e.trim()).filter(Boolean)
     
@@ -181,7 +183,7 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Pollinations Flux (IA) — sans appel LLM pour fiabilité maximale
+// Fallback Pollinations Flux (IA) — toujours disponible, sans vérification
 async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
@@ -190,9 +192,6 @@ async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<
     const encoded = encodeURIComponent(`${subject}, professional press photography, AFP style, documentary realism, natural lighting, sharp focus, no text no watermark no logo`)
     const params = new URLSearchParams({ width: '1200', height: '675', model: 'flux', nologo: 'true', enhance: 'true', seed: String(Date.now() % 1000000) })
     const url = `https://image.pollinations.ai/prompt/${encoded}?${params.toString()}`
-    // Vérifie que l'URL répond avant de la retourner
-    const testResp = await fetch(url, { method: 'HEAD' }).catch(() => null)
-    if (!testResp || !testResp.ok) return null
     return { url, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
   } catch { return null }
 }
