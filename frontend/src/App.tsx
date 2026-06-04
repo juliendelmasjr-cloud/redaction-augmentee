@@ -183,19 +183,15 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Pollinations Flux (IA) — prompt anglais pour fiabilité
+// Fallback Pollinations — URL directe, rapide
 async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   try {
     const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    const promptQuery = await callLLM(
-      'Translate this news topic into a 10-word English image prompt for a realistic press photo. Reply ONLY with the prompt, nothing else.',
-      angle,
-      0.3, 50
-    )
-    const clean = promptQuery.replace(/['"]/g, '').trim()
-    const encoded = encodeURIComponent(`${clean}, professional press photography, realistic, sharp focus, no text no watermark`)
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=675&model=flux&nologo=true&seed=${Date.now() % 1000000}`
-    return { url, photographer: 'IA Générative (Flux)', src: 'https://pollinations.ai' }
+    // Nettoie le texte : enlève accents et caractères spéciaux
+    const clean = angle.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9 ]/g, ' ').trim().substring(0, 80)
+    const encoded = encodeURIComponent(`${clean} press photography realistic editorial`)
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=675&nologo=true&seed=${Date.now() % 100000}`
+    return { url, photographer: 'IA Générative', src: 'https://pollinations.ai' }
   } catch { return null }
 }
 
@@ -349,8 +345,8 @@ function CopyButton({ text }: { text: string }) {
 
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
-  const isAI = imageData?.photographer?.includes('IA') || imageData?.photographer?.includes('Flux')
-  const sourceLabel = isAI ? 'Pollinations × Flux' : imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
+  const isAI = imageData?.photographer?.includes('IA') || imageData?.photographer?.includes('Flux') || imageData?.photographer?.includes('Générative')
+  const sourceLabel = isAI ? 'Pollinations' : imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
   return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
     <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
     {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-white/5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>{isAI ? '🤖 Image IA (Flux)' : `📷 ${imageData.photographer}`}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
