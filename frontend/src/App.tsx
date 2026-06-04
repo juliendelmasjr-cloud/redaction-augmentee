@@ -164,17 +164,15 @@ Réponds UNIQUEMENT avec les 3 titres séparés par des virgules, rien d'autre.`
   }
 }
 
-// Fallback Pexels
+// Fallback Pexels — vraies photos stock, query simplifiée sans appel LLM
 async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   if (!PEXELS_KEY) return null
   try {
-    const facts = editorialPlan.key_facts || []
-    const query = await callLLM(
-      'Réponds UNIQUEMENT avec une requête image (2-4 mots en anglais), rien d\'autre.',
-      `Type: ${editorialPlan.content_type || 'article'}\nAngle: ${editorialPlan.angle || ''}\nFaits: ${facts.slice(0, 3).join(', ')}`,
-      0.1, 50
-    )
-    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query.replace(/['"]/g, '').trim())}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
+    const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
+    // Extrait 2-3 mots-clés du sujet sans appel LLM
+    const words = angle.split(/\s+/).filter(w => w.length > 4).slice(0, 3).join(' ')
+    const query = words || angle.substring(0, 30)
+    const resp = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`, { headers: { 'Authorization': PEXELS_KEY } })
     if (!resp.ok) return null
     const data = await resp.json()
     if (!data.photos?.length) return null
@@ -183,25 +181,11 @@ async function searchPexels(editorialPlan: EditorialPlan): Promise<{url: string;
   } catch { return null }
 }
 
-// Fallback Pollinations — URL directe, rapide
-async function generateImagePollinations(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
-  try {
-    const angle = editorialPlan.angle || editorialPlan.title || editorialPlan.headline || ''
-    // Nettoie le texte : enlève accents et caractères spéciaux
-    const clean = angle.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9 ]/g, ' ').trim().substring(0, 80)
-    const encoded = encodeURIComponent(`${clean} press photography realistic editorial`)
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=675&nologo=true&seed=${Date.now() % 100000}`
-    return { url, photographer: 'IA Générative', src: 'https://pollinations.ai' }
-  } catch { return null }
-}
-
-// Orchestrateur : Wikipedia → Pexels → Pollinations
+// Orchestrateur : Wikipedia (vraies images) → Pexels (photos stock réelles)
 async function searchImage(editorialPlan: EditorialPlan): Promise<{url: string; photographer: string; src: string} | null> {
   const wiki = await searchWikipediaImage(editorialPlan)
   if (wiki) return wiki
-  const pexels = await searchPexels(editorialPlan)
-  if (pexels) return pexels
-  return await generateImagePollinations(editorialPlan)
+  return await searchPexels(editorialPlan)
 }
 
 async function generateAudio(script: string): Promise<string | null> {
@@ -345,11 +329,11 @@ function CopyButton({ text }: { text: string }) {
 
 function AssetCard({ title, icon: Icon, children, color, imageData, copyText }: { title: string; icon: React.ElementType; children: React.ReactNode; color: string; imageData?: { url: string; photographer: string; src: string } | null; copyText?: string }) {
   const [open, setOpen] = useState(true)
-  const isAI = imageData?.photographer?.includes('IA') || imageData?.photographer?.includes('Flux') || imageData?.photographer?.includes('Générative')
-  const sourceLabel = isAI ? 'Pollinations' : imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : imageData?.src?.includes('pexels') ? 'Pexels' : 'Source'
+  const isAI = false // Plus d'images IA, uniquement des vraies photos
+  const sourceLabel = imageData?.src?.includes('wikipedia') || imageData?.src?.includes('wikimedia') ? 'Wikipedia' : 'Pexels'
   return (<div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden transition-all">
     <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 transition-colors"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-4 h-4 text-white" /></div><span className="font-semibold text-white flex-1">{title}</span>{copyText && <CopyButton text={copyText} />}{open ? <ChevronUp className="w-4 h-4 text-white/40" /> : <ChevronDown className="w-4 h-4 text-white/40" />}</button>
-    {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-white/5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>{isAI ? '🤖 Image IA (Flux)' : `📷 ${imageData.photographer}`}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
+    {open && <div>{imageData && <div className="px-5 pt-2"><img src={imageData.url} alt={`Illustration ${title}`} className="w-full aspect-[16/9] object-cover rounded-lg bg-gray-800" loading="eager" /><div className="flex items-center justify-between mt-1 text-xs text-white/30"><span>📷 {imageData.photographer}</span><a href={imageData.src} target="_blank" rel="noopener noreferrer" className="text-orange-400/60 hover:text-orange-300">{sourceLabel}</a></div></div>}<div className="px-5 pb-5 pt-3 text-white/80 text-sm leading-relaxed">{children}</div></div>}
   </div>)
 }
 
